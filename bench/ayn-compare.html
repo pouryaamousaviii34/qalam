@@ -1,0 +1,167 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>ayn compare</title></head>
+<body><div id="app"></div><pre id="o">…</pre>
+<script src="../labs/imglib.js"></script>
+<script src="harness.js"></script>
+<script src="../labs/lab.js"></script>
+<script>
+window.__cmp = (async function () {
+  const M = window.QalamImg;
+  const RJ = await (await fetch('../labs/ref/ayn-reference.json')).json();
+  const W = RJ.imageSize[0], H = RJ.imageSize[1];
+
+  /* نقابِ مرجع از فایلِ ذخیره‌شده */
+  const mi = new Image();
+  await new Promise((r, j) => { mi.onload = r; mi.onerror = j; mi.src = '../labs/ref/ayn-mask.png'; });
+  const mc = document.createElement('canvas'); mc.width = W; mc.height = H;
+  const mx = mc.getContext('2d'); mx.drawImage(mi, 0, 0);
+  const md = mx.getImageData(0, 0, W, H).data;
+  const ref = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) ref[i] = md[i * 4] < 128 ? 1 : 0;
+
+  /* موتور */
+  const L = window.QalamLab;
+  await L.boot();
+  const T = L.T, HH = L.H;
+  const dims = T.dims();
+
+  const REGIONS = {
+    head: { x0: 120, y0: 14, x1: 230, y1: 95 },
+    eye:  { x0: 150, y0: 35, x1: 222, y1: 90 },
+    neck: { x0: 122, y0: 90, x1: 170, y1: 118 },
+    bowl: { x0: 108, y0: 110, x1: 245, y1: 228 },
+    tail: { x0: 225, y0: 120, x1: 285, y1: 200 },
+  };
+
+  function grabMask() {
+    const od = L.ictx.getImageData(0, 0, L.ink.width, L.ink.height).data;
+    const out = new Uint8Array(W * H);
+    for (let py = 0; py < H; py++) for (let px = 0; px < W; px++) {
+      const qx = Math.round(px * dims.dpr), qy = Math.round(py * dims.dpr);
+      if (qx < 0 || qy < 0 || qx >= L.ink.width || qy >= L.ink.height) continue;
+      if (od[(qy * L.ink.width + qx) * 4 + 3] > 40) out[py * W + px] = 1;
+    }
+    return out;
+  }
+  function fullMetrics(out) {
+    const m = M.compare(ref, out, W, H);
+    m.regions = {};
+    for (const k in REGIONS) m.regions[k] = M.compareRegion(ref, out, W, H, REGIONS[k]);
+    // فاصله‌ی خطِ مرکزی: اسکلتِ هر دو، میانگینِ متقارنِ نزدیک‌ترین فاصله
+    const skR = M.skeletonize(ref, W, H), skO = M.skeletonize(out, W, H);
+    const dR = M.distanceToMask(skR, W, H), dO = M.distanceToMask(skO, W, H);
+    let s1 = 0, n1 = 0, s2 = 0, n2 = 0;
+    for (let i = 0; i < W * H; i++) {
+      if (skR[i]) { s1 += dO[i]; n1++; }
+      if (skO[i]) { s2 += dR[i]; n2++; }
+    }
+    m.centerlineDist = +(((n1 ? s1/n1 : 0) + (n2 ? s2/n2 : 0)) / 2).toFixed(3);
+    return m;
+  }
+  function overlayPng(out) {
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    for (let i = 0; i < W * H; i++) {
+      const a = ref[i], b = out[i];
+      if (a && b) g.fillStyle = '#2e7d4f';
+      else if (a) g.fillStyle = '#c0392b';
+      else if (b) g.fillStyle = '#2b6cb0';
+      else continue;
+      g.fillRect(i % W, (i / W) | 0, 1, 1);
+    }
+    return c.toDataURL('image/png');
+  }
+
+  /* پروفایلِ فشار از عرضِ مشاهده‌شده — تخمینِ آغازین، نه ground truth */
+  function pressureFrom(hw, mode, nibW) {
+    const mx2 = Math.max.apply(null, hw);
+    return function (u) {
+      const i = Math.min(hw.length - 1, Math.max(0, Math.round(u * (hw.length - 1))));
+      if (mode === 'ideal') {
+        const target = hw[i] * 2;
+        const minC = T.cfg.minContactRatio, maxC = T.cfg.maxContactRatio;
+        return Math.max(0, Math.min(1, (target / nibW - minC) / (maxC - minC)));
+      }
+      return Math.max(0.06, Math.min(1, hw[i] / mx2));
+    };
+  }
+
+  async function runTest(mode) {
+    await L.clear();
+    HH.setControl('smooth', 0.35); HH.setControl('nib', 'flat');
+    T.TUNE.nibWidthMm = 0;
+    T.TUNE.velocityWidthInfluence = 0;      // سرعت را از سنجش حذف کن
+    if (mode === 'ideal') {
+      // نوکِ آرمانی: پهنا = بیشینه‌ی عرضِ مشاهده‌شده، تیغه = کمینه
+      let mxHw = 0, mnHw = 1e9;
+      for (const s of RJ.strokes) for (const v of s.halfWidthProfile) {
+        if (v > mxHw) mxHw = v; if (v > 0.5 && v < mnHw) mnHw = v;
+      }
+      T.TUNE.nibWidthPx = +(mxHw * 2).toFixed(1);
+      T.TUNE.nibThicknessPx = +(mnHw * 2).toFixed(1);
+      const cp = T.normalizer.calibration.params;
+      cp.minRawPressure = 0; cp.maxRawPressure = 1;
+      cp.deadzone = 0; cp.smoothing = 1; cp.curveExponent = 1;
+      T.TUNE.pressureExponent = 1;
+      HH.setControl('angle', RJ.nibEstimate.angleDeg);
+    } else {
+      T.TUNE.nibWidthPx = 45; T.TUNE.nibThicknessPx = 13;   // نوکِ فعلی (تغییر نکرد)
+      HH.setControl('angle', 122);
+    }
+    T.syncConfig();
+    for (const s of RJ.strokes) {
+      const pts = M.catmullRom(s.controlPoints.map(p => ({ x: p[0], y: p[1] })), 12);
+      L.stroke(pts, pressureFrom(s.halfWidthProfile, mode, T.cfg.nibWidth), 7);
+      await HH.waitFrame();
+    }
+    await HH.waitFrame();
+    const out = grabMask();
+    return { mask: out, metrics: fullMetrics(out),
+             png: L.snapshot(null, 0, 0, W, H, 1), ov: overlayPng(out),
+             nib: { widthPx: T.cfg.nibWidth, thicknessPx: T.cfg.nibThickness,
+                    angleDeg: T.cfg.nibAngle } };
+  }
+
+  const A = await runTest('current');
+  const B = await runTest('ideal');
+
+  /* آزمونِ قطعیت: ماوس در برابر قلمِ مصنوعی روی همان مسیر */
+  async function pointerRun(type) {
+    await L.clear();
+    T.TUNE.nibWidthPx = 45; T.TUNE.nibThicknessPx = 13;
+    HH.setControl('angle', 122); T.syncConfig();
+    const s = RJ.strokes[3];
+    const pts = M.catmullRom(s.controlPoints.map(p => ({ x: p[0], y: p[1] })), 12);
+    const hw = s.halfWidthProfile, mxh = Math.max.apply(null, hw);
+    const path = pts.map((p, i) => ({ x: p.x, y: p.y,
+      pressure: Math.max(0.06, Math.min(1, hw[Math.min(hw.length-1,
+        Math.round(i/(pts.length-1)*(hw.length-1)))] / mxh)),
+      t: performance.now() + i * 6 }));
+    await HH.playStroke(path, { hz: 200, pointerType: type, rawUpdate: type === 'pen' });
+    await HH.waitFrame();
+    return grabMask();
+  }
+  const mMouse = await pointerRun('mouse');
+  const mPen = await pointerRun('pen');
+  const det = M.compare(mPen, mMouse, W, H);
+
+  document.getElementById('o').textContent = 'ok';
+  return {
+    ok: true,
+    refArea: RJ.refArea,
+    nibEstimate: RJ.nibEstimate,
+    testA: { nib: A.nib, m: A.metrics },
+    testB: { nib: B.nib, m: B.metrics },
+    determinism: { iou: det.iou, penArea: det.refArea, mouseArea: det.outArea,
+                   boundaryMean: det.boundaryMean },
+    pngA: A.png, ovA: A.ov, pngB: B.png, ovB: B.ov,
+  };
+})();
+window.__cmp.then(r => {
+  const j = JSON.stringify(r);
+  try { const q = new XMLHttpRequest(); q.open('POST', '/__result', true); q.send(j); } catch (e) {}
+}).catch(e => {
+  try { const q = new XMLHttpRequest(); q.open('POST', '/__result', true);
+        q.send(JSON.stringify({ ok: false, error: String(e && e.stack || e) })); } catch (_) {}
+});
+</script></body></html>

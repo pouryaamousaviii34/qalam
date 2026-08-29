@@ -1,0 +1,184 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>stroke continuity</title></head>
+<body><div id="app"></div><pre id="o">…</pre>
+<script src="../labs/imglib.js"></script>
+<script src="harness.js"></script>
+<script src="../labs/lab.js"></script>
+<script>
+/* =====================================================================
+   PHASE B — آزمونِ یکپارچگیِ خط
+   ---------------------------------------------------------------------
+   منطقِ آزمون: ورودی‌ها را *ثابت* نگه می‌داریم (فشارِ ثابت، بی‌جهت‌گیری،
+   سرعتِ یکنواخت). در این شرایط هر افتِ ضخامت، به تعریف، artifact است.
+   عرض را از *پیکسل‌های رندرشده* عمود بر جهتِ محلی می‌سنجیم، پس
+   rasterization و anti-aliasing هم پوشش داده می‌شوند.
+   ===================================================================== */
+window.__ct = (async function () {
+  const L = window.QalamLab, M = window.QalamImg;
+  await L.boot();
+  const T = L.T, H = L.H;
+  const dims = T.dims();
+  const G = ['maxWidthDropPerPx', 'velocitySpikeLimit', 'pressureOutlierDrop'];
+  const GUARD_ON = {};
+  for (const k of G) GUARD_ON[k] = T.TUNE[k];
+
+  function setGuards(on) {
+    T.TUNE.maxWidthDropPerPx = on ? GUARD_ON.maxWidthDropPerPx : 0;
+    T.TUNE.velocitySpikeLimit = on ? GUARD_ON.velocitySpikeLimit : 1e6;
+    T.TUNE.pressureOutlierDrop = on ? GUARD_ON.pressureOutlierDrop : 0;
+    T.syncConfig();
+  }
+
+  /* عرضِ رندرشده عمود بر جهتِ محلیِ مسیر، در N نقطه */
+  function widthProfile(path, samples) {
+    const od = L.ictx.getImageData(0, 0, L.ink.width, L.ink.height).data;
+    const at = (x, y) => {
+      const px = Math.round(x * dims.dpr), py = Math.round(y * dims.dpr);
+      if (px < 0 || py < 0 || px >= L.ink.width || py >= L.ink.height) return 0;
+      return od[(py * L.ink.width + px) * 4 + 3];
+    };
+    const out = [];
+    const n = samples || 60;
+    for (let k = 1; k < n - 1; k++) {
+      const i = Math.round(k / (n - 1) * (path.length - 1));
+      const i0 = Math.max(0, i - 2), i1 = Math.min(path.length - 1, i + 2);
+      const dir = Math.atan2(path[i1].y - path[i0].y, path[i1].x - path[i0].x);
+      const nx = -Math.sin(dir), ny = Math.cos(dir);
+      let a = null, b = null;
+      for (let s = -70; s <= 70; s += 0.25) {
+        if (at(path[i].x + nx * s, path[i].y + ny * s) > 30) {
+          if (a === null) a = s; b = s;
+        }
+      }
+      out.push(a === null ? 0 : +(b - a).toFixed(2));
+    }
+    return out;
+  }
+  function analyse(w) {
+    let mn = 1e9, mx = 0, gaps = 0, worstDrop = 0, worstAt = -1;
+    for (let i = 0; i < w.length; i++) {
+      if (w[i] <= 0) { gaps++; continue; }
+      if (w[i] < mn) mn = w[i];
+      if (w[i] > mx) mx = w[i];
+      if (i > 0 && w[i - 1] > 0) {
+        const d = (w[i - 1] - w[i]) / w[i - 1];
+        if (d > worstDrop) { worstDrop = d; worstAt = i; }
+      }
+    }
+    return { n: w.length, min: mn === 1e9 ? 0 : mn, max: mx, gaps: gaps,
+             worstDropPct: +(worstDrop * 100).toFixed(1), worstAt: worstAt };
+  }
+
+  const line = (x0, y0, x1, y1, n) => {
+    const o = [];
+    for (let i = 0; i < n; i++) { const u = i / (n - 1);
+      o.push({ x: x0 + (x1 - x0) * u, y: y0 + (y1 - y0) * u }); }
+    return o;
+  };
+  const circle = (cx, cy, r, n) => {
+    const o = [];
+    for (let i = 0; i < n; i++) { const a = i / (n - 1) * Math.PI * 1.9;
+      o.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r }); }
+    return o;
+  };
+  const corner = (n) => line(150, 200, 420, 340, n).concat(line(420, 340, 690, 200, n));
+
+  async function run(path, press, dt, mm) {
+    await L.clear();
+    H.setControl('smooth', 0.3); H.setControl('nib', 'flat');
+    H.setControl('angle', 100);
+    T.TUNE.nibWidthPx = 0; T.TUNE.nibThicknessPx = 0;
+    T.TUNE.nibWidthMm = mm;
+    T.syncConfig();
+    L.stroke(path, press, dt);
+    await H.waitFrame();
+    return { px: analyse(widthProfile(path, 70)),
+             rec: JSON.parse(JSON.stringify(window.__qalamIntegrity)) };
+  }
+
+  const results = { guardsOn: {}, guardsOff: {} };
+  const MM = [1, 2, 3, 5];
+  const PR = [0.2, 0.4, 0.6, 0.8, 1.0];
+
+  for (const on of [true, false]) {
+    setGuards(on);
+    const bucket = on ? results.guardsOn : results.guardsOff;
+
+    // ۱) قلمِ کوچک × فشارِ ثابت — خطِ راست
+    bucket.smallNib = [];
+    for (const mm of MM) for (const p of PR) {
+      const r = await run(line(120, 300, 780, 300, 240), p, 7, mm);
+      bucket.smallNib.push({ mm, p, min: r.px.min, max: r.px.max,
+        gaps: r.px.gaps, worstDropPct: r.px.worstDropPct });
+    }
+    // ۲) تند / آهسته
+    bucket.fast = (await run(line(120, 200, 860, 460, 40), 0.7, 3, 3)).px;
+    bucket.slow = (await run(line(120, 200, 400, 260, 400), 0.7, 30, 3)).px;
+    // ۳) قوس و گوشه‌ی تند
+    bucket.circle = (await run(circle(450, 320, 170, 300), 0.7, 7, 3)).px;
+    bucket.corner = (await run(corner(120), 0.7, 7, 3)).px;
+    // ۴) نمونه‌ی پرتِ فشار: 0.8,0.8,0.42,0.8,0.8 …
+    const spikePath = line(120, 300, 780, 300, 240);
+    const spikeP = u => {
+      const i = Math.round(u * 239);
+      return (i % 40 === 20) ? 0.42 : 0.80;
+    };
+    const rs = await run(spikePath, spikeP, 7, 3);
+    bucket.pressureSpike = rs.px;
+    bucket.pressureSpikeRec = rs.rec;
+  }
+
+  setGuards(true);
+
+  /* ۵) انقضای جهت‌گیری در میانه‌ی خط — مستقیماً روی موتورِ تماس
+        (مسیرِ رندر لازم نیست؛ خودِ پروفایلِ تماس سنجیده می‌شود) */
+  const QE = window.QalamEngine;
+  function leanTest(rateLimited) {
+    const cfg = QE.createConfig({ nibWidth: 40, nibThickness: 8,
+      tiltContactInfluence: 0.25, tiltThicknessInfluence: 0.45,
+      leanRateLimit: rateLimited ? 0.08 : 1e6, velocityWidthInfluence: 0 });
+    const c = new QE.ContactState();
+    const orV = { lean: 0.7, leanDir: 0.4, leanValid: true, twist: 0, twistValid: false };
+    const orX = { lean: 0, leanDir: 0, leanValid: false, twist: 0, twistValid: false };
+    let prev = 0, worst = 0, prevW = 0;
+    const w = [];
+    for (let i = 0; i < 24; i++) {
+      const o = i < 12 ? orV : orX;             // در نمونه‌ی ۱۲ جهت‌گیری منقضی می‌شود
+      QE.computeContact(c, cfg, 0.7, cfg.velocityRef, 0, o, prev);
+      prev = c.lean;
+      if (prevW > 0) {
+        const d = (prevW - c.width) / prevW;
+        if (d > worst) worst = d;
+      }
+      prevW = c.width;
+      w.push(+c.width.toFixed(2));
+    }
+    return { widths: w, worstDropPct: +(worst * 100).toFixed(1) };
+  }
+  const leanOn = leanTest(true), leanOff = leanTest(false);
+
+  /* ۶) رندرِ کامل در برابر رندرِ ناحیه‌ای (حالتِ تشخیصی) */
+  await L.clear();
+  T.TUNE.nibWidthMm = 3; T.syncConfig();
+  L.stroke(line(150, 250, 700, 250, 200), 0.8, 7);
+  L.stroke(line(150, 300, 700, 300, 200), u => 0.9 - 0.5 * u, 7);
+  await H.waitFrame();
+  const before = L.ictx.getImageData(0, 0, L.ink.width, L.ink.height).data.slice();
+  T.redraw();
+  await H.waitFrame();
+  const after = L.ictx.getImageData(0, 0, L.ink.width, L.ink.height).data;
+  let diff = 0;
+  for (let i = 3; i < before.length; i += 4) if (Math.abs(before[i] - after[i]) > 12) diff++;
+
+  document.getElementById('o').textContent = 'ok';
+  return { ok: true, results, leanOn, leanOff,
+           dirtyVsFullDiffPixels: diff,
+           guardDefaults: GUARD_ON };
+})();
+window.__ct.then(r => {
+  try { const q = new XMLHttpRequest(); q.open('POST', '/__result', true);
+        q.send(JSON.stringify(r)); } catch (e) {}
+}).catch(e => {
+  try { const q = new XMLHttpRequest(); q.open('POST', '/__result', true);
+        q.send(JSON.stringify({ ok: false, error: String(e && e.stack || e) })); } catch (_) {}
+});
+</script></body></html>

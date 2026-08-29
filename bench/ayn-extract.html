@@ -1,0 +1,93 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>ayn extract</title></head>
+<body><pre id="o">…</pre>
+<script src="../labs/imglib.js"></script>
+<script>
+/* =====================================================================
+   PHASE A — استخراجِ مسیرِ نوشتنِ «ع» از تصویرِ مرجع
+   ---------------------------------------------------------------------
+   خروجی: نقابِ پاک‌شده، اسکلت، شاخه‌ها، چهار استروکِ مرتب‌شده، پروفایلِ
+   عرض و تخمینِ زاویه‌ی نوک. هیچ چیزی از تصویر روی بومِ نهایی کپی نمی‌شود.
+   ===================================================================== */
+window.__ex = (async function () {
+  const M = window.QalamImg;
+  const img = new Image();
+  await new Promise((res, rej) => { img.onload = res; img.onerror = rej;
+                                    img.src = '../labs/ref/ayn-ref.png'; });
+  const w = img.width, h = img.height;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+  const data = x.getImageData(0, 0, w, h).data;
+
+  /* ---- ۱) نقاب ---- */
+  const r0 = M.maskFromImage(data, w, h, { inset: 14, lumMax: 110 });
+  const mask = M.healRedHoles(r0.mask, r0.red, w, h, 4);
+  let nInk = 0; for (let i = 0; i < w * h; i++) if (mask[i]) nInk++;
+  const bb = M.bbox(mask, w, h);
+
+  /* ---- ۲) تبدیلِ فاصله و اسکلت ---- */
+  const dist = M.distanceTransform(mask, w, h);
+  const sk = M.skeletonize(mask, w, h);
+  const G = M.skeletonGraph(sk, w, h);
+
+  /* ---- ۳) شاخه‌ها: طول، دو سر، شعاعِ میانه ---- */
+  const branches = G.branches.map((pts, idx) => {
+    const rs = pts.map(p => dist[p.y * w + p.x]);
+    const L = M.polyLength(pts);
+    return {
+      idx, len: +L.toFixed(1),
+      a: pts[0], b: pts[pts.length - 1],
+      radMean: +(rs.reduce((s, v) => s + v, 0) / rs.length).toFixed(2),
+      radMax: +Math.max.apply(null, rs).toFixed(2),
+      n: pts.length, pts,
+    };
+  }).filter(b => b.len >= 8).sort((p, q) => q.len - p.len);
+
+  /* ---- ۴) لنگرِ فلش‌ها (از خودِ تصویر خوانده شده) ----
+     نوکِ چهار فلشِ قرمز، به‌عنوان راهنمای ترتیب/جهت. مرکزِ جرمِ
+     پیکسل‌های قرمز را در چهار ناحیه می‌گیریم تا حدس نزنیم. */
+  const redBlobs = (function () {
+    const lab = new Int32Array(w * h).fill(-1);
+    const blobs = [];
+    for (let i = 0; i < w * h; i++) {
+      if (!r0.red[i] || lab[i] >= 0) continue;
+      const id = blobs.length, st = [i];
+      lab[i] = id;
+      let sx = 0, sy = 0, n = 0, minx = 1e9, miny = 1e9, maxx = -1, maxy = -1;
+      while (st.length) {
+        const p = st.pop(), px = p % w, py = (p / w) | 0;
+        sx += px; sy += py; n++;
+        if (px < minx) minx = px; if (px > maxx) maxx = px;
+        if (py < miny) miny = py; if (py > maxy) maxy = py;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const qx = px + dx, qy = py + dy;
+          if (qx < 0 || qy < 0 || qx >= w || qy >= h) continue;
+          const q = qy * w + qx;
+          if (r0.red[q] && lab[q] < 0) { lab[q] = id; st.push(q); }
+        }
+      }
+      blobs.push({ id, n, cx: +(sx / n).toFixed(1), cy: +(sy / n).toFixed(1),
+                   box: [minx, miny, maxx, maxy] });
+    }
+    return blobs.filter(b => b.n >= 25).sort((a, b) => a.cy - b.cy);
+  })();
+
+  document.getElementById('o').textContent = 'ok';
+  return {
+    imgW: w, imgH: h, inkPixels: nInk, redPixels: r0.redCount, bbox: bb,
+    branchCount: branches.length,
+    branches: branches.slice(0, 12).map(b => ({
+      idx: b.idx, len: b.len, n: b.n, radMean: b.radMean, radMax: b.radMax,
+      a: b.a, b: b.b,
+    })),
+    nodeCount: G.nodes.length,
+    redBlobs: redBlobs,
+    maskPng: M.maskToPng(mask, w, h, '#1a1208'),
+    skPng: M.maskToPng(sk, w, h, '#b3271f'),
+  };
+})();
+window.__ex.then(r => {
+  const j = JSON.stringify(r);
+  try { navigator.sendBeacon('/__result', j); } catch (e) {}
+  try { const q = new XMLHttpRequest(); q.open('POST', '/__result', true); q.send(j); } catch (e) {}
+});
+</script></body></html>

@@ -1,0 +1,16 @@
+{
+ "testId": "RULE-KERSEE-001",
+ "ruleId": "RULE-KERSEE-001",
+ "sourcePages": [
+  8
+ ],
+ "input": {},
+ "expected": {
+  "baselineOffsetUnit": "dot",
+  "groupsAtLeast": 3
+ },
+ "tolerance": null,
+ "status": "PROVISIONAL",
+ "requiresEngine": false,
+ "note": "خوانشِ شرح‌ها جزئی بود؛ نیازمندِ اسکنِ بازتر."
+}

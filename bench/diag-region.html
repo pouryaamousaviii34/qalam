@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head><meta charset="UTF-8"><title>region consistency probe</title>
+<style>body{margin:0;font:12px/1.5 monospace;background:#14120f;color:#e6ddcb}
+#out{padding:10px;white-space:pre-wrap}#app{position:absolute;left:-5000px;top:0}</style>
+</head>
+<body>
+<pre id="out">…</pre>
+<script src="harness.js"></script>
+<script>
+/* =====================================================================
+   diag-region.html — «رسمِ افزایشی» در برابر «بازترسیمِ کامل»
+   ---------------------------------------------------------------------
+   تست tests.html فقط تعدادِ پیکسلِ متفاوت را می‌گوید. برای ریشه‌یابی باید
+   بدانیم *کجا* و *چقدر* و *در کدام کانال* تفاوت دارند.
+   ===================================================================== */
+(async function () {
+  const H = window.QalamHarness;
+  const out = document.getElementById('out');
+  const R = { ua: navigator.userAgent };
+  const post = o => { try { fetch('/__result', { method: 'POST', body: JSON.stringify(o) }); } catch (_) {} };
+  window.onerror = (m, s, l, c, e) => {
+    R.fatal = String(m) + ' @' + l + (e && e.stack ? '\n' + e.stack : '');
+    out.textContent = R.fatal; post(R);
+  };
+
+  H.instrumentRaf();
+  H.buildDOM(900, 620);
+  await new Promise(r => setTimeout(r, 60));
+  await H.loadEngine('../stylus.js');
+  await H.loadEngine('../qalam-engine.js');
+  await H.loadEngine('../app.js');
+  await new Promise(r => setTimeout(r, 150));
+
+  const T = window.__qalamTest;
+  if (!T) { R.fatal = 'no test api'; out.textContent = R.fatal; return post(R); }
+  const ink = T.inkCanvas;
+  const ictx = ink.getContext('2d', { willReadFrequently: true });
+  const clearBtn = document.getElementById('clear');
+  const reset = async () => { clearBtn.click(); await H.waitFrame(); await H.waitFrame(); };
+
+  const snap = () => ictx.getImageData(0, 0, ink.width, ink.height).data.slice();
+
+  function analyse(a, b) {
+    let n = 0, nRGB = 0;
+    let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+    const samples = [];
+    let maxAlphaDelta = 0, maxRgbDelta = 0;
+    for (let i = 0, p = 0; i < a.length; i += 4, p++) {
+      const da = Math.abs(a[i + 3] - b[i + 3]);
+      const dr = Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) +
+                 Math.abs(a[i + 2] - b[i + 2]);
+      if (da > maxAlphaDelta) maxAlphaDelta = da;
+      if (dr > maxRgbDelta) maxRgbDelta = dr;
+      if (da > 12) {
+        n++;
+        const x = p % ink.width, y = (p / ink.width) | 0;
+        if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (y < y0) y0 = y; if (y > y1) y1 = y;
+        if (samples.length < 14) {
+          samples.push({ x: x, y: y,
+                         incr: [a[i], a[i + 1], a[i + 2], a[i + 3]],
+                         full: [b[i], b[i + 1], b[i + 2], b[i + 3]] });
+        }
+      }
+      if (dr > 24) nRGB++;
+    }
+    return { alphaDiffCount: n, rgbDiffCount: nRGB,
+             maxAlphaDelta: maxAlphaDelta, maxRgbDelta: maxRgbDelta,
+             bbox: x1 < 0 ? null : { x0: x0, y0: y0, x1: x1, y1: y1 },
+             samples: samples };
+  }
+
+  async function caseRun(name, fn, opts) {
+    await reset();
+    if (opts && opts.cfg) for (const k in opts.cfg) window.__qalamTune[k] = opts.cfg[k];
+    window.__qalamSyncConfig();
+    await fn();
+    await H.waitFrame(); await H.waitFrame();
+    const incr = snap();
+    T.redraw();
+    await H.waitFrame();
+    const full = snap();
+    const a = analyse(incr, full);
+    a.name = name;
+    a.strokes = T.strokes.length;
+    a.samples0 = T.strokes.length ? T.strokes[0].length : 0;
+    return a;
+  }
+
+  const line = (x0, y0, x1, y1, n, pf) => H.pathLine(x0, y0, x1, y1, n, pf);
+
+  R.cases = [];
+
+  // ۱) یک استروکِ ساده با فشارِ ثابت و بدونِ تیپرِ دم
+  R.cases.push(await caseRun('flat pressure, autoReturn(no taper)', async () => {
+    H.setControl('size', 10); H.setControl('nibRatio', 3); H.setControl('angle', 109);
+    H.setControl('autoReturn', true);
+    await H.playStroke(line(150, 300, 750, 300, 250, () => 0.8), { hz: 200 });
+  }));
+
+  // ۲) همان، ولی با تیپرِ دم فعال
+  R.cases.push(await caseRun('flat pressure, taper on', async () => {
+    H.setControl('autoReturn', false);
+    H.setControl('size', 10); H.setControl('nibRatio', 3); H.setControl('angle', 109);
+    await H.playStroke(line(150, 300, 750, 300, 250, () => 0.8), { hz: 200 });
+  }));
+
+  // ۳) همان تستِ اصلیِ tests.html
+  R.cases.push(await caseRun('ramp pressure, taper on (tests.html case)', async () => {
+    H.setControl('autoReturn', false);
+    H.setControl('size', 10); H.setControl('nibRatio', 3); H.setControl('angle', 109);
+    await H.playStroke(line(150, 300, 750, 300, 250, u => 0.2 + 0.7 * u), { hz: 200 });
+  }));
+
+  // ۴) بدونِ نوارهای لبه ⇒ آیا اختلاف از destination-over می‌آید؟
+  R.cases.push(await caseRun('ramp pressure, taper on, fringeBands=0', async () => {
+    H.setControl('autoReturn', false);
+    await H.playStroke(line(150, 300, 750, 300, 250, u => 0.2 + 0.7 * u), { hz: 200 });
+  }, { cfg: { inkFringeBands: 0 } }));
+
+  // ۵) با لایهٔ خیسِ خاموش ⇒ رفتارِ قبلِ این فاز
+  R.cases.push(await caseRun('ramp pressure, taper on, wetLayer=off', async () => {
+    H.setControl('autoReturn', false);
+    await H.playStroke(line(150, 300, 750, 300, 250, u => 0.2 + 0.7 * u), { hz: 200 });
+  }, { cfg: { inkWetLayer: false, inkFringeBands: 3 } }));
+
+  // ۶) بازگرداندنِ پیکربندی و آزمونِ گذرِ تکرار
+  R.cases.push(await caseRun('two crossing strokes', async () => {
+    H.setControl('autoReturn', false);
+    await H.playStroke(line(150, 300, 750, 300, 250, () => 0.95), { hz: 200 });
+    await H.playStroke(line(450, 120, 450, 500, 200, u => 0.2 + 0.7 * u), { hz: 200 });
+  }, { cfg: { inkWetLayer: true, inkFringeBands: 3 } }));
+
+  // ۷) دو استروکِ متقاطع، ولی با گذرِ تکرار خاموش
+  R.cases.push(await caseRun('two crossing strokes, repeatGain=0', async () => {
+    H.setControl('autoReturn', false);
+    await H.playStroke(line(150, 300, 750, 300, 250, () => 0.95), { hz: 200 });
+    await H.playStroke(line(450, 120, 450, 500, 200, u => 0.2 + 0.7 * u), { hz: 200 });
+  }, { cfg: { inkRepeatGain: 0 } }));
+
+  R.tune = { inkFringeBands: window.__qalamCfg.inkFringeBands,
+             inkWetLayer: window.__qalamCfg.inkWetLayer,
+             inkRepeatGain: window.__qalamCfg.inkRepeatGain,
+             dpr: T.dims().dpr };
+  out.textContent = JSON.stringify(R, null, 1);
+  post(R);
+})();
+</script>
+</body></html>

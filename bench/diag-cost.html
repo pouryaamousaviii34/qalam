@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head><meta charset="UTF-8"><title>ink cost / edge profile</title>
+<style>body{margin:0;font:12px/1.5 monospace;background:#14120f;color:#e6ddcb}
+#out{padding:10px;white-space:pre-wrap}#app{position:absolute;left:-5000px;top:0}</style>
+</head>
+<body>
+<pre id="out">…</pre>
+<script src="harness.js"></script>
+<script>
+/* =====================================================================
+   diag-cost.html — هزینهٔ رسم در برابر کیفیتِ لبه
+   ---------------------------------------------------------------------
+   دو سنجهٔ *قطعی* (بی‌نوسان):
+     • fill در هر پاره‌خط  ← کارِ رستریزهٔ واقعی
+     • drawImage در هر استروک
+   و یک سنجهٔ نوسان‌دار:
+     • زمانِ اشغالِ ترد اصلی — هر پیکربندی چند بار اجرا و *کمینه* گرفته
+       می‌شود، چون نوسانِ ماشین همیشه زمان را زیاد می‌کند نه کم.
+   ===================================================================== */
+(async function () {
+  const H = window.QalamHarness;
+  const out = document.getElementById('out');
+  const R = { ua: navigator.userAgent, runs: [] };
+  const post = o => { try { fetch('/__result', { method: 'POST', body: JSON.stringify(o) }); } catch (_) {} };
+  window.onerror = (m, s, l, c, e) => {
+    R.fatal = String(m) + ' @' + l + (e && e.stack ? '\n' + e.stack : '');
+    out.textContent = R.fatal; post(R);
+  };
+
+  H.instrument();
+  H.instrumentRaf();
+  H.buildDOM(900, 620);
+  await new Promise(r => setTimeout(r, 60));
+  await H.loadEngine('../stylus.js');
+  await H.loadEngine('../qalam-engine.js');
+  await H.loadEngine('../app.js');
+  await new Promise(r => setTimeout(r, 150));
+
+  const T = window.__qalamTest;
+  const TUNE = window.__qalamTune;
+  const S = window.__qalamStats;
+  const ink = T.inkCanvas;
+  const ictx = ink.getContext('2d', { willReadFrequently: true });
+  const clearBtn = document.getElementById('clear');
+  const reset = async () => { clearBtn.click(); await H.waitFrame(); await H.waitFrame(); };
+
+  function xsec(x) {
+    const d = T.dims(), px = Math.round(x * d.dpr);
+    const img = ictx.getImageData(px, 0, 1, ink.height).data;
+    const o = [];
+    for (let r = 0; r < ink.height; r++) {
+      const a = img[r * 4 + 3];
+      if (a > 3) o.push([a, Math.round(0.2126 * img[r * 4] + 0.7152 * img[r * 4 + 1] +
+                                       0.0722 * img[r * 4 + 2])]);
+    }
+    return o;
+  }
+
+  /* بارِ کاری استاندارد: چند سطرِ نوشته + یک گذرِ زیگزاگِ هم‌پوشان
+     (بدترین حالتِ باگِ اولِ پروژه: قلمِ ریز روی حرفِ نوشته‌شده) */
+  async function workload() {
+    H.setControl('size', 10); H.setControl('nibRatio', 3);
+    H.setControl('angle', 109); H.setControl('autoReturn', false);
+    for (let k = 0; k < 5; k++) {
+      await H.playStroke(
+        H.pathLine(140, 220 + k * 45, 780, 225 + k * 45, 300, u => 0.25 + 0.6 * u),
+        { hz: 200, framesPerSec: 60 });
+    }
+    await H.playStroke(H.pathZigzag(160, 300, 600, 26, 360, () => 0.8),
+                       { hz: 200, framesPerSec: 60 });
+  }
+
+  async function once(cfgPatch) {
+    for (const k in cfgPatch) TUNE[k] = cfgPatch[k];
+    window.__qalamSyncConfig();
+    await reset();
+    const seg0 = S.segments, smp0 = S.samples;
+    H.resetCounters();
+    H.resetBusy();
+    await workload();
+    const c = H.snapshotCounters();
+    return {
+      busy: H.dispatchBusyMs + H.rafBusyMs,
+      dispatch: H.dispatchBusyMs,
+      raf: H.rafBusyMs,
+      fills: c.fill | 0,
+      drawImages: c.drawImage | 0,
+      clears: c.clearRect | 0,
+      segments: S.segments - seg0,
+      samples: S.samples - smp0,
+    };
+  }
+
+  async function run(label, cfgPatch, reps) {
+    let best = null;
+    for (let i = 0; i < (reps || 3); i++) {
+      const m = await once(cfgPatch);
+      if (!best || m.busy < best.busy) best = m;
+    }
+    // نمایهٔ لبه از یک خطِ تنها
+    await reset();
+    await H.playStroke(H.pathLine(150, 300, 700, 300, 300, () => 0.8), { hz: 200 });
+    await H.waitFrame();
+    return {
+      label: label,
+      busyMs: +best.busy.toFixed(1),
+      dispatchMs: +best.dispatch.toFixed(1),
+      rafMs: +best.raf.toFixed(1),
+      segments: best.segments,
+      samples: best.samples,
+      fills: best.fills,
+      fillsPerSegment: best.segments ? +(best.fills / best.segments).toFixed(3) : null,
+      drawImages: best.drawImages,
+      busyPerSampleUs: best.samples ? +(best.busy / best.samples * 1000).toFixed(1) : null,
+      edge: xsec(400),
+    };
+  }
+
+  R.runs.push(await run('bands=1 (new default)', { inkFringeBands: 1, inkWetLayer: true, inkRepeatGain: 0.35 }));
+  R.runs.push(await run('bands=3', { inkFringeBands: 3 }));
+  R.runs.push(await run('bands=1, repeatGain=0', { inkFringeBands: 1, inkRepeatGain: 0 }));
+  R.runs.push(await run('wetLayer=off (pre-phase raster)', { inkFringeBands: 1, inkWetLayer: false }));
+  R.runs.push(await run('bands=1 again (noise check)', { inkFringeBands: 1, inkWetLayer: true, inkRepeatGain: 0.35 }));
+
+  out.textContent = JSON.stringify(R, null, 1);
+  post(R);
+})();
+</script>
+</body></html>

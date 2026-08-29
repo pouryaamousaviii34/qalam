@@ -1,0 +1,20 @@
+*{box-sizing:border-box}
+body{margin:0;font:13px/1.7 Tahoma,sans-serif;background:#f4efe4;color:#29251f}
+header{background:#332d26;color:#f7f1e5;padding:10px 16px;display:flex;
+  justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+header h1{margin:0;font-size:17px}
+header a{color:#e0cfa8}
+main{padding:14px;display:flex;flex-direction:column;gap:14px}
+.card{background:#fffdf7;border:1px solid #d3c8b5;border-radius:9px;padding:12px}
+.card h2{margin:0 0 8px;font-size:14px;color:#6b4e32;border-bottom:1px solid #e6ddcb;padding-bottom:4px}
+table{border-collapse:collapse;font:11px Consolas,monospace;direction:ltr}
+th,td{border:1px solid #e0d6c4;padding:2px 6px;text-align:left}
+th{background:#f0e9da;color:#6b4e32}
+img.shot{display:block;max-width:100%;border:1px solid #d3c8b5;border-radius:6px;background:#fff}
+#app{position:absolute;left:-6000px;top:0}
+.hint{font-size:11px;color:#7a6a52}
+.pass{color:#2e7d4f;font-weight:bold}.fail{color:#b3271f;font-weight:bold}
+button{border:1px solid #c9beab;background:#fffdf8;border-radius:7px;padding:6px 10px;cursor:pointer}
+.grid{display:flex;flex-wrap:wrap;gap:10px}
+.grid figure{margin:0;flex:0 0 auto}
+.grid figcaption{font:10px Consolas,monospace;text-align:center;color:#6b4e32}

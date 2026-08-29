@@ -1,0 +1,107 @@
+<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8">
+<title>آزمون خوشنویسی</title><link rel="stylesheet" href="_style.css"></head>
+<body>
+<header><h1>آزمون خوشنویسی — رفتار نوک در حرکت‌های نستعلیق</h1>
+<a href="index.html">آزمایشگاه</a></header>
+<main>
+<div class="card"><h2>حرکت‌های پایه</h2><img id="s1" class="shot"></div>
+<div class="card"><h2>حروف نمونه (فقط برای دیدنِ رفتار نوک، نه ساختِ فونت)</h2>
+<img id="s2" class="shot"></div>
+<div class="card"><h2>سنجش ضخیم‌ـنازک روی کشیده و دایره</h2><div id="tbl"></div>
+<p class="hint">در یک دایره با لبهٔ نوکِ ثابت، پهنای خط باید در دو نقطه‌ای که
+مسیر با لبه هم‌راستا می‌شود کمینه و در دو نقطهٔ عمود بیشینه شود. نسبتِ
+بیشینه به کمینه، همان «ضخیم‌ـنازکِ» قلمِ نی است.</p></div>
+</main>
+<script src="../bench/harness.js"></script><script src="lab.js"></script>
+<script>
+window.__lab = (async function () {
+  const L = window.QalamLab;
+  await L.boot();
+  const T = L.T;
+  const P = Math.PI;
+  L.set('smooth', 0.35); L.set('nib', 'flat');
+  L.set('angle', 109);                 // زاویهٔ متعارفِ نستعلیق در پروژه
+  T.TUNE.nibWidthMm = 4;
+  T.TUNE.heelLift = 0.7;
+  T.syncConfig();
+
+  /* ---------- ۱) حرکت‌های پایه ---------- */
+  await L.clear();
+  const press = u => 0.35 + 0.6 * Math.sin(u * P);      // ورود/خروجِ نرم
+  // کشیده (کشش افقی)
+  L.stroke(L.line(90, 90, 620, 96, 220), u => 0.5 + 0.45 * Math.sin(u * P), 6);
+  // دایره
+  L.stroke(L.arc(760, 120, 55, 0, 2 * P, 160), 0.85, 6);
+  // قوس (نیم‌دایره)
+  L.stroke(L.arc(180, 250, 70, P, 2 * P, 100), press, 6);
+  // حرکت عمودی
+  L.stroke(L.line(340, 190, 340, 330, 90), press, 6);
+  // افقی
+  L.stroke(L.line(400, 260, 600, 260, 90), press, 6);
+  // مورب
+  L.stroke(L.line(650, 200, 800, 330, 90), press, 6);
+  // چرخش ۴۵° و ۹۰° لبه در میانهٔ حرکت
+  L.set('angle', 45);
+  L.stroke(L.line(90, 400, 300, 400, 90), 0.85, 6);
+  L.set('angle', 90);
+  L.stroke(L.line(330, 400, 540, 400, 90), 0.85, 6);
+  L.set('angle', 109);
+  // تغییرِ ناگهانیِ جهت (گوشهٔ تند)
+  L.stroke(L.line(590, 380, 700, 470, 60).concat(L.line(700, 470, 810, 380, 60)),
+           0.8, 6);
+  // نقطه (گذاشتن و برداشتنِ قلم)
+  for (let i = 0; i < 4; i++) {
+    L.stroke([{ x: 120 + i * 40, y: 520 }, { x: 121 + i * 40, y: 520 }],
+             0.3 + i * 0.22, 20);
+  }
+  const png1 = L.snapshot('s1', 40, 40, 900, 540, 1);
+
+  /* ---------- ۲) حروف نمونه ---------- */
+  await L.clear();
+  const put = (pts, p) => L.stroke(pts, p == null ? 0.8 : p, 6);
+  // الف: کشش عمودی با ورودِ پرفشار و خروجِ سبک
+  put(L.line(120, 120, 128, 300, 110), u => 0.95 - 0.55 * u);
+  // لام: عمودی + قوسِ پایانی به چپ
+  put(L.line(240, 110, 246, 260, 90), 0.9);
+  put(L.arc(206, 262, 42, -0.15 * P, 0.55 * P, 80), 0.75);
+  // نون: کاسهٔ باز + نقطه
+  put(L.arc(400, 230, 58, 0.1 * P, 0.9 * P, 110), u => 0.55 + 0.4 * Math.sin(u * P));
+  put([{ x: 400, y: 140 }, { x: 401, y: 140 }], 0.55);
+  // میم: سرِ گرد + دنبالهٔ کوتاه
+  put(L.arc(570, 200, 26, 0, 2 * P, 90), 0.8);
+  put(L.line(570, 226, 566, 300, 60), u => 0.8 - 0.45 * u);
+  // عین: سرِ باز + کاسه
+  put(L.arc(710, 190, 30, -0.35 * P, 0.75 * P, 90), 0.78);
+  put(L.arc(704, 246, 46, 0.05 * P, 0.95 * P, 90), u => 0.5 + 0.4 * Math.sin(u * P));
+  // کشیدهٔ بلندِ پایانی
+  put(L.line(120, 430, 820, 448, 300), u => 0.4 + 0.5 * Math.sin(u * P));
+  const png2 = L.snapshot('s2', 60, 60, 860, 460, 1);
+
+  /* ---------- ۳) سنجش ضخیم‌ـنازک ---------- */
+  await L.clear();
+  L.set('angle', 109);
+  T.TUNE.velocityWidthInfluence = 0;
+  T.syncConfig();
+  const cx = 480, cy = 300, R = 150;
+  L.stroke(L.arc(cx, cy, R, 0, 2 * P, 400), 0.9, 6);
+  const rows = [], samples = [];
+  for (let i = 0; i < 12; i++) {
+    const a = i * P / 6;
+    const px = cx + Math.cos(a) * R, py = cy + Math.sin(a) * R;
+    const tangent = a + P / 2;                    // جهتِ حرکت روی دایره
+    const w = L.perpWidth(px, py, tangent, 40);
+    samples.push(w);
+    rows.push([(a * 180 / P).toFixed(0) + '°',
+               ((109 - tangent * 180 / P + 360) % 180).toFixed(0) + '°',
+               w.toFixed(2)]);
+  }
+  const mx = Math.max.apply(null, samples), mn = Math.min.apply(null, samples);
+  rows.push(['—', '<b>بیشینه/کمینه</b>',
+             '<b>' + mx.toFixed(2) + ' / ' + mn.toFixed(2) +
+             ' = ' + (mx / Math.max(0.01, mn)).toFixed(2) + '×</b>']);
+  L.table('tbl', ['موقعیت روی دایره', 'زاویهٔ نسبی لبه', 'پهنای سنجیده px'], rows);
+  T.TUNE.nibWidthMm = 0;
+  return { png1: png1, png2: png2, thickThinRatio: +(mx / Math.max(0.01, mn)).toFixed(2),
+           max: +mx.toFixed(2), min: +mn.toFixed(2), samples: samples };
+})();
+</script></body></html>

@@ -1,0 +1,73 @@
+<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8">
+<title>ماتریس زاویهٔ نوک</title><link rel="stylesheet" href="_style.css"></head>
+<body>
+<header><h1>ماتریس زاویهٔ نوک × جهتِ حرکت</h1><a href="index.html">آزمایشگاه</a></header>
+<main>
+<div class="card"><h2>پهنای دیده‌شده (px) — اندازه‌گیری‌شده از پیکسل‌های رندرشده</h2>
+<div id="tbl">در حال اجرا…</div>
+<p class="hint">
+پیش‌بینیِ هندسی برای یک لبهٔ بُرشِ تخت:
+<code>apparent = |W·sin(θ)| + |T·cos(θ)|</code> که در آن
+θ = زاویهٔ لبه − جهتِ حرکت، W پهنای سطحِ تماس و T ضخامتِ تیغه.
+ستونِ «انتظار» همین فرمول است. تطابقِ ستونِ «سنجش» با آن یعنی رفتارِ
+ضخیم‌ـنازکِ قلمِ نی از هندسه می‌آید، نه از یک ترفندِ ظاهری.
+</p></div>
+<div class="card"><h2>تصویر</h2><img id="shot" class="shot"></div>
+</main>
+<script src="../bench/harness.js"></script><script src="lab.js"></script>
+<script>
+window.__lab = (async function () {
+  const L = window.QalamLab;
+  await L.boot();
+  const T = L.T;
+  const ANGLES = [0, 15, 30, 45, 60, 75, 90];
+  const DIRS = [['افقی', 0], ['عمودی', Math.PI / 2], ['مورب ۴۵°', Math.PI / 4],
+                ['مورب ۱۳۵°', 3 * Math.PI / 4]];
+  L.set('smooth', 0); L.set('nib', 'flat');
+  T.TUNE.nibWidthMm = 3;              // ≈11.3px لبه
+  T.TUNE.velocityWidthInfluence = 0;
+  T.TUNE.heelLift = 0;                // تقارن، تا سنجشِ پهنا خالص باشد
+  T.TUNE.nibCornerRound = 0;
+  T.syncConfig();
+
+  const rows = [], out = [];
+  const LEN = 150;
+  for (const ang of ANGLES) {
+    L.set('angle', ang);
+    for (const [dname, dir] of DIRS) {
+      await L.clear();
+      const cx = 500, cy = 320;
+      const x0 = cx - Math.cos(dir) * LEN / 2, y0 = cy - Math.sin(dir) * LEN / 2;
+      const x1 = cx + Math.cos(dir) * LEN / 2, y1 = cy + Math.sin(dir) * LEN / 2;
+      const recs = L.stroke(L.line(x0, y0, x1, y1, 90), 1, 6);
+      const meas = L.perpWidth(cx, cy, dir, 90);
+      const mid = recs[Math.floor(recs.length / 2)];
+      const th = (mid.ang - dir * 180 / Math.PI) * Math.PI / 180;
+      const expect = Math.abs(mid.cw * Math.sin(th)) + Math.abs(mid.ct * Math.cos(th));
+      rows.push([ang + '°', dname, mid.ang.toFixed(0) + '°',
+                 expect.toFixed(2), meas.toFixed(2),
+                 (meas - expect).toFixed(2),
+                 Math.abs(meas - expect) <= Math.max(1.8, expect * 0.12)
+                   ? '<span class="pass">OK</span>' : '<span class="fail">≠</span>']);
+      out.push({ nibAngle: ang, dir: dname, expected: +expect.toFixed(2),
+                 measured: +meas.toFixed(2) });
+    }
+  }
+  L.table('tbl', ['زاویهٔ تنظیم', 'جهت', 'زاویهٔ مؤثر', 'انتظار px',
+                  'سنجش px', 'اختلاف', 'وضعیت'], rows);
+
+  // تصویرِ نمونه: همهٔ زاویه‌ها روی یک برگه
+  await L.clear();
+  let px = 90;
+  for (const ang of ANGLES) {
+    L.set('angle', ang);
+    L.stroke(L.line(px, 90, px + 60, 250, 70), 1, 6);
+    L.stroke(L.line(px, 300, px + 110, 300, 70), 1, 6);
+    L.stroke(L.line(px + 40, 360, px + 40, 520, 70), 1, 6);
+    px += 130;
+  }
+  L.snapshot('shot', 40, 60, 940, 500, 1);
+  T.TUNE.nibWidthMm = 0;
+  return out;
+})();
+</script></body></html>

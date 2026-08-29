@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>composite probe</title></head><body>
+<pre id="out">…</pre>
+<script>
+/* بررسیِ رفتارِ 'multiply' روی مقصدِ شفاف و روی مرکبِ موجود.
+   اگر multiply روی پیکسلِ شفاف نتیجه‌ی سیاه بدهد، نمی‌توان از آن برای
+   ترکیبِ لایهٔ خیس استفاده کرد. این را نمی‌شود حدس زد — باید سنجید. */
+(function () {
+  const R = {};
+  function px(c, x, y) {
+    const d = c.getContext('2d').getImageData(x, y, 1, 1).data;
+    return [d[0], d[1], d[2], d[3]];
+  }
+  function mk(w, h) {
+    const c = document.createElement('canvas'); c.width = w; c.height = h; return c;
+  }
+  // منبع: یک مربعِ مرکبِ نیمه‌شفاف روی بومِ شفاف
+  const src = mk(20, 20);
+  const s = src.getContext('2d');
+  s.fillStyle = 'rgb(40,30,20)';
+  s.fillRect(0, 0, 10, 20);              // alpha=1 ink
+  s.globalAlpha = 0.4;
+  s.fillRect(10, 0, 5, 20);              // alpha=0.4 ink
+  // 15..20 می‌مانَد شفاف
+
+  // مقصد ۱: کاملاً شفاف
+  const d1 = mk(20, 20);
+  const c1 = d1.getContext('2d');
+  c1.globalCompositeOperation = 'multiply';
+  c1.globalAlpha = 0.97;
+  c1.drawImage(src, 0, 0);
+  R.ontoTransparent = { ink: px(d1, 5, 5), semi: px(d1, 12, 5), empty: px(d1, 18, 5) };
+
+  // مقصد ۲: مرکبِ موجود (گذرِ دوم)
+  const d2 = mk(20, 20);
+  const c2 = d2.getContext('2d');
+  c2.globalAlpha = 0.97;
+  c2.drawImage(src, 0, 0);
+  const first = px(d2, 5, 5);
+  c2.globalCompositeOperation = 'multiply';
+  c2.globalAlpha = 0.97;
+  c2.drawImage(src, 0, 0);
+  R.repeatPass = { first: first, second: px(d2, 5, 5) };
+
+  // مقایسه: source-over برای همان گذرِ دوم
+  const d3 = mk(20, 20);
+  const c3 = d3.getContext('2d');
+  c3.globalAlpha = 0.97; c3.drawImage(src, 0, 0);
+  c3.globalAlpha = 0.97; c3.drawImage(src, 0, 0);
+  R.repeatPassSourceOver = px(d3, 5, 5);
+
+  // آلفای ۱ روی هم (idempotent بودنِ هستهٔ لایهٔ خیس)
+  const d4 = mk(20, 20);
+  const c4 = d4.getContext('2d');
+  c4.fillStyle = 'rgba(40,30,20,1)';
+  c4.fillRect(0, 0, 10, 10);
+  const a1 = px(d4, 5, 5);
+  c4.fillRect(0, 0, 10, 10);
+  R.opaqueIdempotent = { once: a1, twice: px(d4, 5, 5) };
+
+  R.ua = navigator.userAgent;
+  document.getElementById('out').textContent = JSON.stringify(R, null, 1);
+  try { fetch('/__result', { method: 'POST', body: JSON.stringify(R) }); } catch (e) {}
+})();
+</script>
+</body></html>

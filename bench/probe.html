@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Stylus API probe</title></head>
+<body><pre id="out">probing…</pre>
+<script>
+/* گزارشِ خطا و ضربانِ زندگی — تا اگر مرورگری وسطِ کار شکست، بدانیم کجا */
+window.__step = 'boot';
+function report(obj) {
+  const body = JSON.stringify(obj);
+  try {
+    if (navigator.sendBeacon && navigator.sendBeacon('/__result', body)) return;
+  } catch (_) {}
+  try { fetch('/__result', { method: 'POST', body: body, keepalive: true }); } catch (_) {}
+  try {
+    const x = new XMLHttpRequest();
+    x.open('POST', '/__result', true);
+    x.send(body);
+  } catch (_) {}
+}
+window.addEventListener('error', e => {
+  report({ fatal: true, step: window.__step, message: String(e.message),
+           file: e.filename, line: e.lineno, ua: navigator.userAgent });
+});
+window.addEventListener('unhandledrejection', e => {
+  report({ fatal: true, step: window.__step, message: 'unhandledrejection: ' + String(e.reason),
+           ua: navigator.userAgent });
+});
+</script>
+<script>
+/* =====================================================================
+   probe.html — سنجشِ *واقعیِ* API قلم در هر مرورگر
+   ---------------------------------------------------------------------
+   این صفحه فقط چیزهایی را می‌سنجد که بدونِ سخت‌افزارِ قلم قابل سنجش‌اند:
+     • وجود/نبودِ property و متدها روی PointerEvent
+     • فعال‌بودنِ pointerrawupdate و getCoalescedEvents در بسترِ امن
+     • مقدارِ پیش‌فرضِ هر property در رویدادِ ساختگی
+     • آیا مقادیرِ tilt/azimuth در رویدادهای coalesced حفظ می‌شوند
+     • آیا مقدارِ property بین pointerdown و pointermoveهای بعدی می‌مانَد
+   چیزی که این‌جا قابل سنجش *نیست* (و ادعا هم نمی‌کنیم):
+     مقادیرِ واقعیِ سخت‌افزار روی XP-Pen/Wacom/Huion.
+   ===================================================================== */
+(async function () {
+  try {
+  window.__step = 'init';
+  const R = { userAgent: navigator.userAgent, secureContext: window.isSecureContext };
+
+  window.__step = 'props';
+  /* ---- ۱) وجودِ property/متد ------------------------------------- */
+  const PE = window.PointerEvent;
+  R.hasPointerEvent = !!PE;
+  const probeEv = new PE('pointermove', { pointerId: 1, pointerType: 'pen' });
+  const PROPS = ['pointerId', 'width', 'height', 'pressure', 'tangentialPressure',
+                 'tiltX', 'tiltY', 'twist', 'altitudeAngle', 'azimuthAngle',
+                 'pointerType', 'isPrimary', 'persistentDeviceId'];
+  R.props = {};
+  for (const p of PROPS) {
+    R.props[p] = {
+      inInstance: p in probeEv,
+      defaultValue: (p in probeEv) ? probeEv[p] : null,
+    };
+  }
+  R.methods = {
+    getCoalescedEvents: typeof probeEv.getCoalescedEvents === 'function',
+    getPredictedEvents: typeof probeEv.getPredictedEvents === 'function',
+  };
+  R.onpointerrawupdateInWindow = 'onpointerrawupdate' in window;
+  R.onpointerrawupdateInDocument = 'onpointerrawupdate' in document;
+  R.navigatorInk = !!(navigator.ink && typeof navigator.ink.requestPresenter === 'function');
+  R.maxTouchPoints = navigator.maxTouchPoints;
+
+  window.__step = 'defaults';
+  /* ---- ۲) مقادیرِ پیش‌فرضِ مهم طبق [PE3] ------------------------- */
+  // pressure=0 وقتی دکمه فعال نیست؛ altitudeAngle=π/2؛ azimuthAngle=0
+  const defEv = new PE('pointerdown', { pointerId: 2, pointerType: 'pen' });
+  R.specDefaults = {
+    pressure: defEv.pressure,
+    tiltX: defEv.tiltX,
+    tiltY: defEv.tiltY,
+    twist: defEv.twist,
+    altitudeAngle: 'altitudeAngle' in defEv ? defEv.altitudeAngle : null,
+    azimuthAngle: 'azimuthAngle' in defEv ? defEv.azimuthAngle : null,
+    altitudeIsHalfPi: 'altitudeAngle' in defEv
+      ? Math.abs(defEv.altitudeAngle - Math.PI / 2) < 1e-9 : null,
+  };
+
+  window.__step = 'roundtrip';
+  /* ---- ۳) آیا مقادیرِ ساختگی حفظ می‌شوند؟ ------------------------ */
+  const setEv = new PE('pointermove', {
+    pointerId: 3, pointerType: 'pen', pressure: 0.37,
+    tiltX: -23, tiltY: 41, twist: 77, buttons: 1,
+  });
+  R.roundTrip = {
+    pressure: setEv.pressure, tiltX: setEv.tiltX, tiltY: setEv.tiltY,
+    twist: setEv.twist,
+    // اگر مرورگر tilt↔spherical را تبدیل می‌کند، این‌ها هم پر می‌شوند
+    altitudeAngle: 'altitudeAngle' in setEv ? setEv.altitudeAngle : null,
+    azimuthAngle: 'azimuthAngle' in setEv ? setEv.azimuthAngle : null,
+  };
+  // و برعکس: ست‌کردنِ spherical آیا tilt را می‌سازد؟
+  try {
+    const sph = new PE('pointermove', {
+      pointerId: 4, pointerType: 'pen',
+      altitudeAngle: Math.PI / 6, azimuthAngle: Math.PI / 3, buttons: 1,
+    });
+    R.sphericalToTilt = {
+      altitudeAngle: 'altitudeAngle' in sph ? sph.altitudeAngle : null,
+      azimuthAngle: 'azimuthAngle' in sph ? sph.azimuthAngle : null,
+      tiltX: sph.tiltX, tiltY: sph.tiltY,
+      converts: sph.tiltX !== 0 || sph.tiltY !== 0,
+    };
+  } catch (e) { R.sphericalToTilt = { error: String(e) }; }
+
+  window.__step = 'coalesced';
+  /* ---- ۴) coalesced events: آیا ساخته و حفظ می‌شوند؟ ------------- */
+  try {
+    const kids = [0.11, 0.22, 0.33].map((pr, i) => new PE('pointermove', {
+      pointerId: 5, pointerType: 'pen', pressure: pr,
+      tiltX: 10 + i, tiltY: -10 - i, buttons: 1,
+      clientX: 100 + i * 5, clientY: 200,
+    }));
+    const parent = new PE('pointermove', {
+      pointerId: 5, pointerType: 'pen', pressure: 0.44, tiltX: 13, tiltY: -13,
+      buttons: 1, clientX: 115, clientY: 200, coalescedEvents: kids,
+    });
+    const got = typeof parent.getCoalescedEvents === 'function'
+      ? parent.getCoalescedEvents() : [];
+    R.coalesced = {
+      supportedInInit: got.length === kids.length,
+      count: got.length,
+      pressures: got.map(e => e.pressure),
+      tiltX: got.map(e => e.tiltX),
+      positions: got.map(e => e.clientX),
+      // آیا فرزندان همان pointerType/pressure را نگه می‌دارند؟
+      preservesPressure: got.length ? got.every((e, i) => Math.abs(e.pressure - kids[i].pressure) < 1e-6) : null,
+      preservesTilt: got.length ? got.every((e, i) => e.tiltX === kids[i].tiltX) : null,
+    };
+  } catch (e) { R.coalesced = { error: String(e) }; }
+
+  window.__step = 'dispatch';
+  /* ---- ۵) آیا listener برای pointerrawupdate واقعاً صدا زده می‌شود؟ */
+  const host = document.createElement('div');
+  host.style.cssText = 'position:absolute;left:0;top:0;width:400px;height:300px';
+  document.body.appendChild(host);
+
+  const seen = { pointerdown: 0, pointermove: 0, pointerrawupdate: 0 };
+  for (const t of Object.keys(seen)) {
+    host.addEventListener(t, () => { seen[t]++; }, true);
+  }
+  // ارسالِ مصنوعی — نشان می‌دهد dispatch/listener کار می‌کند (نه اینکه
+  // مرورگر خودش این رویداد را از سخت‌افزار می‌سازد)
+  host.dispatchEvent(new PE('pointerdown', { pointerId: 9, pointerType: 'pen', bubbles: true, buttons: 1 }));
+  host.dispatchEvent(new PE('pointermove', { pointerId: 9, pointerType: 'pen', bubbles: true, buttons: 1 }));
+  host.dispatchEvent(new PE('pointerrawupdate', { pointerId: 9, pointerType: 'pen', bubbles: true, buttons: 1 }));
+  R.syntheticDispatch = Object.assign({}, seen);
+
+  window.__step = 'sequence';
+  /* ---- ۶) دنبالهٔ رویداد: down / move#1 / #2 / #10 / #100 --------
+     همان‌طور که خواسته شد، مقادیر در نقاطِ مشخصِ دنباله ثبت می‌شوند.
+     با رویدادِ ساختگی، هرچه ست کنیم همان برمی‌گردد؛ ارزشِ این تست آن است
+     که *pipeline خودمان* را می‌سنجد: آیا در طولِ دنباله چیزی را گم یا
+     بازنویسی می‌کنیم. برای سخت‌افزار واقعی، همین ساختار در
+     labs/stylus-probe.html به‌صورت زنده ثبت می‌شود.
+     ------------------------------------------------------------------ */
+  const seq = [];
+  const marks = new Set([1, 2, 10, 100]);
+  host.addEventListener('pointermove', ev => {
+    const n = ++seqCount;
+    if (marks.has(n)) {
+      seq.push({
+        at: 'pointermove#' + n,
+        pressure: ev.pressure, tiltX: ev.tiltX, tiltY: ev.tiltY, twist: ev.twist,
+        altitudeAngle: 'altitudeAngle' in ev ? ev.altitudeAngle : null,
+        azimuthAngle: 'azimuthAngle' in ev ? ev.azimuthAngle : null,
+      });
+    }
+  });
+  let seqCount = 0;
+  const down = new PE('pointerdown', {
+    pointerId: 11, pointerType: 'pen', bubbles: true, buttons: 1,
+    pressure: 0.2, tiltX: -30, tiltY: 20, twist: 15,
+  });
+  host.addEventListener('pointerdown', ev => {
+    seq.unshift({
+      at: 'pointerdown',
+      pressure: ev.pressure, tiltX: ev.tiltX, tiltY: ev.tiltY, twist: ev.twist,
+      altitudeAngle: 'altitudeAngle' in ev ? ev.altitudeAngle : null,
+      azimuthAngle: 'azimuthAngle' in ev ? ev.azimuthAngle : null,
+    });
+  });
+  host.dispatchEvent(down);
+  for (let i = 1; i <= 100; i++) {
+    host.dispatchEvent(new PE('pointermove', {
+      pointerId: 11, pointerType: 'pen', bubbles: true, buttons: 1,
+      pressure: Math.min(1, 0.2 + i * 0.008),
+      tiltX: -30 + i * 0.2, tiltY: 20 - i * 0.1, twist: 15,
+      clientX: 10 + i, clientY: 50,
+    }));
+  }
+  R.eventSequence = seq;
+
+  window.__step = 'done';
+  document.getElementById('out').textContent = JSON.stringify(R, null, 1);
+  report(R);
+  } catch (e) {
+    report({ fatal: true, step: window.__step, message: String(e && e.stack || e),
+             ua: navigator.userAgent });
+  }
+})();
+</script>
+</body></html>

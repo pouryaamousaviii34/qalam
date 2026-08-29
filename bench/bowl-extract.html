@@ -1,0 +1,136 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>bowl extract</title></head>
+<body><pre id="o">…</pre>
+<script src="../labs/imglib.js"></script>
+<script>
+/* =====================================================================
+   PHASE D — استخراجِ محورِ میانیِ «کاسه»ی ع، بدونِ برازشِ دایره
+   ===================================================================== */
+window.__bw = (async function () {
+  const M = window.QalamImg;
+  const mi = new Image();
+  await new Promise((r, j) => { mi.onload = r; mi.onerror = j;
+                                mi.src = '../labs/ref/ayn-mask.png'; });
+  const W = mi.width, H = mi.height;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d'); x.drawImage(mi, 0, 0);
+  const d = x.getImageData(0, 0, W, H).data;
+  const ref = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) ref[i] = d[i * 4] < 128 ? 1 : 0;
+
+  /* ---- ۱) جداکردنِ کاسه: زیرِ سرِ حرف ---------------------------
+     از سنجشِ سطرهای مرجع: گردن در y≈۹۰…۱۱۸ و سر تا y≈۹۵ می‌رسد.
+     برشِ y ≥ 92 سر را حذف می‌کند و بزرگ‌ترین مؤلفه‌ی متصل = کاسه+دم. */
+  const CUT_Y = 92;
+  const bowl = M.largestComponent(ref, W, H, (px, py) => py >= CUT_Y);
+  const bb = M.bbox(bowl, W, H);
+  const dist = M.distanceTransform(bowl, W, H);
+
+  /* ---- ۲) دو سرِ استروک، از هندسه‌ی مرجع + ترتیبِ نوشتن ----------
+     START = اتصال به گردن: در نخستین سطرِ کاسه، پیکسلی با بیشترین
+             فاصله‌ی مرزی (مرکزِ گردن) — نه حدس.
+     END   = نوکِ کشیده: راست‌ترین پیکسلِ کاسه.                    */
+  let startIdx = -1, sBest = -1;
+  for (let py = CUT_Y; py < CUT_Y + 10; py++) {
+    for (let px = 0; px < W; px++) {
+      const i = py * W + px;
+      if (bowl[i] && dist[i] > sBest) { sBest = dist[i]; startIdx = i; }
+    }
+    if (startIdx >= 0) break;
+  }
+  let endIdx = -1, eBestX = -1, eBestD = -1;
+  for (let i = 0; i < W * H; i++) {
+    if (!bowl[i]) continue;
+    const px = i % W;
+    if (px > eBestX || (px === eBestX && dist[i] > eBestD)) {
+      eBestX = px; eBestD = dist[i]; endIdx = i;
+    }
+  }
+
+  /* ---- ۳) مسیرِ محورِ میانی با Dijkstra روی 1/dist^p ------------- */
+  const raw = M.medialPath(bowl, W, H, dist, startIdx, endIdx, 2.5);
+  if (!raw) throw new Error('no medial path found');
+
+  /* ---- ۴) پاک‌سازی: بازنمونه، هموارسازی، کاهشِ نقاط -------------- */
+  const rs = M.resample(raw, 2.0);
+  for (const p of rs) {
+    const px = Math.max(0, Math.min(W - 1, Math.round(p.x)));
+    const py = Math.max(0, Math.min(H - 1, Math.round(p.y)));
+    p.hw = dist[py * W + px];
+  }
+  const sm = M.smoothPolyline(rs, 4, true);
+  for (let i = 0; i < sm.length; i++) sm[i].hw = rs[Math.min(i, rs.length - 1)].hw;
+  const cp = M.simplify(sm, 1.6);
+  const dense = M.catmullRom(cp, 12);
+  const curv = M.curvatureProfile(sm, 4);
+
+  /* ---- ۵) نقاطِ شاخصِ کاسه (برای گزارش) ------------------------- */
+  const key = (function () {
+    let top = null, left = null, bottom = null, right = null;
+    for (const p of sm) {
+      if (!top || p.y < top.y) top = p;
+      if (!left || p.x < left.x) left = p;
+      if (!bottom || p.y > bottom.y) bottom = p;
+      if (!right || p.x > right.x) right = p;
+    }
+    const f = p => [+p.x.toFixed(1), +p.y.toFixed(1)];
+    return { top: f(top), left: f(left), bottom: f(bottom), right: f(right) };
+  })();
+
+  let kmin = 1e9, kmax = -1e9;
+  for (const k of curv) { if (k < kmin) kmin = k; if (k > kmax) kmax = k; }
+
+  const json = {
+    stroke: 'ayn-bowl',
+    source: 'labs/ref/ayn-mask.png',
+    method: 'medial axis via Dijkstra on 1/distanceTransform^2.5 (no circle/ellipse fit)',
+    note: 'centerline is a geometric medial-axis estimate, NOT a proven pen path',
+    imageSize: [W, H],
+    bbox: bb,
+    cutY: CUT_Y,
+    direction: 'neck -> down-left -> bottom -> right (tail tip)',
+    directionSource: 'stroke order arrow #4 in reference image',
+    start: [startIdx % W, (startIdx / W) | 0],
+    end: [endIdx % W, (endIdx / W) | 0],
+    startJustification: 'max distance-transform pixel in first bowl row (neck centre)',
+    endJustification: 'right-most bowl pixel (tail tip)',
+    keyPoints: key,
+    length: +M.polyLength(dense).toFixed(1),
+    controlPoints: cp.map(p => [+p.x.toFixed(1), +p.y.toFixed(1)]),
+    bezier: M.catmullToBezier(cp),
+    samples: sm.map(p => ({ x: +p.x.toFixed(2), y: +p.y.toFixed(2),
+                            hw: +p.hw.toFixed(2) })),
+    curvature: curv,
+    curvatureRange: [+kmin.toFixed(5), +kmax.toFixed(5)],
+  };
+
+  /* تصویرِ بازرسی: نقاب + مسیر + نقاطِ کنترل */
+  const vis = (function () {
+    const cc = document.createElement('canvas'); cc.width = W; cc.height = H;
+    const g = cc.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    g.globalAlpha = 0.20; g.fillStyle = '#000';
+    for (let i = 0; i < W * H; i++) if (ref[i]) g.fillRect(i % W, (i / W) | 0, 1, 1);
+    g.globalAlpha = 0.35; g.fillStyle = '#2b6cb0';
+    for (let i = 0; i < W * H; i++) if (bowl[i]) g.fillRect(i % W, (i / W) | 0, 1, 1);
+    g.globalAlpha = 1;
+    g.strokeStyle = '#c0392b'; g.lineWidth = 1.8; g.beginPath();
+    dense.forEach((p, k) => k ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y));
+    g.stroke();
+    g.fillStyle = '#8e44ad';
+    cp.forEach(p => g.fillRect(p.x - 2, p.y - 2, 4, 4));
+    g.fillStyle = '#2e7d4f';
+    g.fillRect(json.start[0] - 3, json.start[1] - 3, 6, 6);
+    g.fillStyle = '#e67e22';
+    g.fillRect(json.end[0] - 3, json.end[1] - 3, 6, 6);
+    return cc.toDataURL('image/png');
+  })();
+
+  document.getElementById('o').textContent = 'ok';
+  return { ok: true, json, vis,
+           rawLen: raw.length, cpCount: cp.length, denseLen: dense.length };
+})();
+window.__bw.then(r => { try { const q = new XMLHttpRequest();
+  q.open('POST', '/__result', true); q.send(JSON.stringify(r)); } catch (e) {} })
+ .catch(e => { try { const q = new XMLHttpRequest(); q.open('POST', '/__result', true);
+  q.send(JSON.stringify({ ok: false, error: String(e && e.stack || e) })); } catch (_) {} });
+</script></body></html>

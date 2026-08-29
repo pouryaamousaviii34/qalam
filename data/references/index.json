@@ -1,0 +1,79 @@
+{
+ "meta": {
+  "note": "کراپ‌ها فقط برای validation هستند. اصلِ PDF دست‌نخورده است و هیچ صفحه‌ای بازنویسی نشده.",
+  "pdfModified": false,
+  "purpose": "VALIDATION_ONLY"
+ },
+ "references": [
+  {
+   "file": "p005-noqte.jpg",
+   "sourcePage": 5,
+   "render": "170dpi",
+   "crop": "center 78%x82%",
+   "letter": null,
+   "stroke": null,
+   "description": "صفحهٔ «نقطه»: تعریف واحد، تقسیم به ۶ دانگ، شش‌دانگی/پنج‌دانگی + نمونهٔ مقایسه‌ای",
+   "rules": [
+    "RULE-NIB-001",
+    "RULE-DANG-001",
+    "RULE-DANG-002",
+    "RULE-STYLE-001"
+   ]
+  },
+  {
+   "file": "p006-dang.jpg",
+   "sourcePage": 6,
+   "render": "170dpi",
+   "crop": "center 78%x82%",
+   "letter": null,
+   "stroke": null,
+   "description": "صفحهٔ «دانگ»: هفت ردهٔ قلم + معادلِ میلی‌متری + نام‌گذاریِ دانگیِ مشقی",
+   "rules": [
+    "RULE-PEN-001",
+    "RULE-PEN-002",
+    "RULE-PEN-003"
+   ]
+  },
+  {
+   "file": "p007-tarash-qalam.jpg",
+   "sourcePage": 7,
+   "render": "170dpi",
+   "crop": "center 78%x82%",
+   "letter": null,
+   "stroke": null,
+   "description": "صفحهٔ «تراش قلم»: متغیرهای بنیادیِ سبک، شش‌دانگیِ قدیم و پنج‌دانگیِ کلهرِ «گوشت‌دارتر»",
+   "rules": [
+    "RULE-NIB-002",
+    "RULE-STYLE-001",
+    "RULE-STYLE-002",
+    "RULE-DOC-001"
+   ]
+  },
+  {
+   "file": "p008-009-alphabet.jpg",
+   "sourcePage": 8,
+   "render": "100dpi",
+   "crop": "pair montage 8+9",
+   "letter": "ALL",
+   "stroke": null,
+   "description": "جدولِ الفبا بر اساس شیوهٔ کلهر، دسته‌بندی‌شده نسبت به خط میزان (صفحهٔ ۸) + سیاه‌مشق (صفحهٔ ۹)",
+   "rules": [
+    "RULE-KERSEE-001",
+    "RULE-KERSEE-002",
+    "RULE-DOC-001"
+   ]
+  },
+  {
+   "file": "p016-ayn-drill.jpg",
+   "sourcePage": 16,
+   "render": "170dpi",
+   "crop": "center 78%x82%",
+   "letter": "ع",
+   "stroke": null,
+   "description": "صفحهٔ مشقِ حرف «ع» — تکرارِ ترکیب‌ها و نمونهٔ درشت (علی/عشق/عطر)",
+   "rules": [
+    "RULE-PRACTICE-001"
+   ]
+  }
+ ]
+}

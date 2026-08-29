@@ -1,0 +1,48 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><canvas id=c></canvas>
+<script>
+/* استخراجِ نقابِ مرجع از تصویر: پیکسل‌های سیاه (حرف)، با حذفِ فلش‌های قرمز */
+window.__r=(async function(){
+ const img=new Image();
+ await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;
+   img.src='../labs/ref/ayn-ref.png';});
+ const W=img.width,H=img.height;
+ const c=document.getElementById('c'); c.width=W;c.height=H;
+ const x=c.getContext('2d'); x.drawImage(img,0,0);
+ const d=x.getImageData(0,0,W,H).data;
+ let x0=1e9,y0=1e9,x1=-1,y1=-1,n=0,red=0;
+ const mask=new Uint8Array(W*H);
+ const INSET=14;   // تصویر یک کادرِ سیاهِ ~4px دارد؛ کنار گذاشته می‌شود
+ for(let i=0;i<W*H;i++){
+   const px0=i%W, py0=(i/W)|0;
+   if(px0<INSET||py0<INSET||px0>=W-INSET||py0>=H-INSET) continue;
+   const r=d[i*4],g=d[i*4+1],b=d[i*4+2],a=d[i*4+3];
+   if(a<8) continue;
+   const isRed = r>110 && r>g*1.7 && r>b*1.7;
+   if(isRed){red++;continue;}
+   const lum=(r*0.299+g*0.587+b*0.114);
+   if(lum<110){ mask[i]=1;n++;
+     const px=i%W,py=(i/W)|0;
+     if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py; }
+ }
+ // ضخامتِ عمودی در چند ستون و ضخامتِ افقی در چند سطر
+ const colT=[],rowT=[];
+ for(let f=0.1;f<=0.9;f+=0.1){
+   const px=Math.round(x0+(x1-x0)*f);
+   let t=-1,b2=-1,cnt=0;
+   for(let py=y0;py<=y1;py++){ if(mask[py*W+px]){ if(t<0)t=py; b2=py; cnt++; } }
+   colT.push({at:+f.toFixed(1), x:px, span:t<0?0:b2-t+1, ink:cnt});
+ }
+ for(let f=0.1;f<=0.9;f+=0.1){
+   const py=Math.round(y0+(y1-y0)*f);
+   let l=-1,r2=-1,cnt=0;
+   for(let px=x0;px<=x1;px++){ if(mask[py*W+px]){ if(l<0)l=px; r2=px; cnt++; } }
+   rowT.push({at:+f.toFixed(1), y:py, span:l<0?0:r2-l+1, ink:cnt, left:l, right:r2});
+ }
+ return {imgW:W,imgH:H,inset:INSET,bbox:{x0,y0,x1,y1,w:x1-x0+1,h:y1-y0+1},inkPixels:n,redPixels:red,
+   aspect:+((x1-x0+1)/(y1-y0+1)).toFixed(3), columns:colT, rows:rowT};
+})();
+window.__r.then(r=>{
+  try{navigator.sendBeacon('/__result',JSON.stringify(r));}catch(e){}
+  try{const x=new XMLHttpRequest();x.open('POST','/__result',true);x.send(JSON.stringify(r));}catch(e){}
+});
+</script></body></html>

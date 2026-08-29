@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head><meta charset="UTF-8"><title>mirror + painting tools</title>
+<style>body{margin:0;font:12px/1.5 monospace;background:#14120f;color:#e6ddcb}
+#out{padding:10px;white-space:pre-wrap}#app{position:absolute;left:-5000px;top:0}</style>
+</head>
+<body>
+<pre id="out">…</pre>
+<script src="harness.js"></script>
+<script>
+/* =====================================================================
+   diag-mirror-tools.html — آینه و ابزارهای نقاشی
+   ---------------------------------------------------------------------
+   آینه در یک پنجرهٔ واقعی آزمون نمی‌شود (اجراکنندهٔ بی‌سر پنجرهٔ دوم را
+   نگه نمی‌دارد)؛ به‌جایش *پروتکل* آزمون می‌شود: پیام‌هایی که پنجرهٔ اصلی
+   می‌فرستد گرفته و به یک نمونهٔ گیرنده در همان صفحه داده می‌شود، و
+   خروجیِ پیکسلیِ دو طرف مقایسه می‌گردد. اگر پروتکل درست باشد، پنجرهٔ
+   واقعی هم درست است، چون همان کدِ رسم را اجرا می‌کند.
+   ===================================================================== */
+(async function () {
+  const H = window.QalamHarness;
+  const out = document.getElementById('out');
+  const R = { ua: navigator.userAgent, checks: [] };
+  const post = o => { try { fetch('/__result', { method: 'POST', body: JSON.stringify(o) }); } catch (_) {} };
+  const ok = (n, c, d) => R.checks.push({ name: n, ok: !!c, detail: String(d) });
+  window.onerror = (m, s, l, c, e) => {
+    R.fatal = String(m) + ' @' + l + (e && e.stack ? '\n' + e.stack : '');
+    out.textContent = R.fatal; post(R);
+  };
+
+  H.instrumentRaf();
+  H.buildDOM(800, 520);
+  await new Promise(r => setTimeout(r, 60));
+  await H.loadEngine('../stylus.js');
+  await H.loadEngine('../qalam-engine.js');
+  await H.loadEngine('../app.js');
+  await new Promise(r => setTimeout(r, 180));
+
+  const T = window.__qalamTest;
+  const M = window.__qalamMirror;
+  const TL = window.__qalamTools;
+  const ink = T.inkCanvas;
+  const ictx = ink.getContext('2d', { willReadFrequently: true });
+  const clearBtn = document.getElementById('clear');
+  const reset = async () => { clearBtn.click(); await H.waitFrame(); await H.waitFrame(); };
+
+  const inked = () => {
+    const d = ictx.getImageData(0, 0, ink.width, ink.height).data;
+    let n = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 8) n++;
+    return n;
+  };
+  function vExtent(x) {
+    const dd = T.dims(), px = Math.round(x * dd.dpr);
+    if (px < 0 || px >= ink.width) return 0;
+    const img = ictx.getImageData(px, 0, 1, ink.height).data;
+    let top = -1, bot = -1;
+    for (let r = 0; r < ink.height; r++) {
+      if (img[r * 4 + 3] > 8) { if (top < 0) top = r; bot = r; }
+    }
+    return top < 0 ? 0 : (bot - top + 1) / dd.dpr;
+  }
+
+  /* ================================================================
+     الف) آینه — پروتکل
+     ================================================================ */
+  ok('MIRROR api is exposed', !!M && typeof M.open === 'function', M ? 'ok' : 'missing');
+  ok('MIRROR this window is not a mirror', M && M.isMirror === false, String(M && M.isMirror));
+  ok('MIRROR channel name is versioned', M && /v\d/.test(M.channel), M && M.channel);
+
+  // بستهٔ محیط باید همهٔ پارامترهایی که ظاهر را می‌سازند داشته باشد
+  {
+    const env = M.env();
+    const need = ['inkWetLayer', 'inkFringeBands', 'inkFringeMax', 'inkFringeAlpha',
+                  'inkPaperShowThrough', 'inkRepeatGain', 'inkToneDepMin',
+                  'inkToneDepMax', 'inkDilutePale', 'inkConcentrate',
+                  'inkEdgeDilute', 'nibWidth', 'nibThickness'];
+    const missing = need.filter(k => env.cfg[k] === undefined);
+    ok('MIRROR env carries every appearance parameter', missing.length === 0,
+       missing.length ? 'missing=' + missing.join(',') : 'all present');
+    ok('MIRROR env carries canvas size, nib, colour and opacity',
+       env.W > 0 && env.H > 0 && !!env.nib && !!env.color && env.opacity > 0,
+       JSON.stringify({ W: env.W, H: env.H, nib: env.nib, opacity: env.opacity }));
+  }
+
+  // پیام‌ها را می‌گیریم: mirrorSend روی کانال و روی دستهٔ پنجره می‌فرستد.
+  // این‌جا هیچ پنجره‌ای نیست، پس از BroadcastChannel استفاده می‌کنیم.
+  {
+    const got = [];
+    let ch = null;
+    try { ch = new BroadcastChannel(M.channel); } catch (_) {}
+    ok('MIRROR BroadcastChannel is available in this browser', !!ch,
+       ch ? 'yes' : 'no');
+    if (ch) {
+      ch.onmessage = e => { if (e.data && e.data.t) got.push(e.data); };
+      // «سلام» باعثِ همگام‌سازیِ کامل می‌شود و آینه را روشن می‌کند
+      ch.postMessage({ t: 'hello' });
+      await new Promise(r => setTimeout(r, 120));
+
+      await reset();
+      H.setControl('size', 10); H.setControl('nibRatio', 3); H.setControl('angle', 109);
+      await H.playStroke(H.pathLine(140, 260, 640, 265, 240, u => 0.25 + 0.6 * u),
+                         { hz: 200 });
+      await H.waitFrame();
+      await new Promise(r => setTimeout(r, 200));
+
+      const kinds = got.map(m => m.t);
+      R.messageKinds = kinds;
+      ok('MIRROR a stroke produces begin/rec/end messages',
+         kinds.indexOf('begin') >= 0 && kinds.indexOf('rec') >= 0 &&
+         kinds.indexOf('end') >= 0, kinds.join(','));
+      ok('MIRROR every message carries a monotonic sequence number',
+         got.every((m, i) => i === 0 || m.seq > got[i - 1].seq),
+         got.map(m => m.seq).join(','));
+      const recMsgs = got.filter(m => m.t === 'rec');
+      const totalRecs = recMsgs.reduce((a, m) => a + m.recs.length, 0);
+      ok('MIRROR the records sent match the stroke that was drawn',
+         T.strokes.length > 0 && totalRecs >= T.strokes[0].length,
+         `sent=${totalRecs} stroke=${T.strokes[0] ? T.strokes[0].length : 0}`);
+      // رکوردها باید خودبسنده باشند: هرچه رندرر لازم دارد در خودشان است
+      const rec = recMsgs.length ? recMsgs[recMsgs.length - 1].recs[0] : null;
+      const needRec = ['x', 'y', 'ang', 'cw', 'ct', 'nw', 'uh', 'ut', 'hs',
+                       'dens', 'inkAmt', 'inkSpread', 'color', 'nb'];
+      ok('MIRROR records are self-contained for rendering',
+         !!rec && needRec.every(k => rec[k] !== undefined),
+         rec ? needRec.filter(k => rec[k] === undefined).join(',') || 'all present'
+             : 'no rec');
+      // پاک‌کردن هم خبر می‌دهد
+      got.length = 0;
+      clearBtn.click();
+      await new Promise(r => setTimeout(r, 120));
+      ok('MIRROR clearing the page is broadcast',
+         got.some(m => m.t === 'clear'), got.map(m => m.t).join(','));
+      ch.close();
+    }
+  }
+
+  /* ================================================================
+     ب) ابزارهای نقاشی
+     ================================================================ */
+  ok('TOOLS registry is exposed', !!TL && !!TL.TOOLS, TL ? Object.keys(TL.TOOLS).join(',') : 'missing');
+  ok('TOOLS include the five expected tools',
+     TL && ['reed', 'pencil', 'brush', 'marker', 'water'].every(k => TL.TOOLS[k]),
+     TL ? Object.keys(TL.TOOLS).join(',') : '');
+
+  R.tools = {};
+  for (const id of ['reed', 'pencil', 'brush', 'marker', 'water']) {
+    await reset();
+    TL.setTool(id);
+    await H.waitFrame();
+    H.setControl('size', 10);
+    H.setControl('angle', 90);
+    window.__qalamSyncConfig();
+    // یک خط با فشارِ کم و یک خط با فشارِ زیاد ⇒ پاسخِ ابزار به فشار
+    await H.playStroke(H.pathLine(120, 180, 620, 180, 240, () => 0.15), { hz: 200 });
+    await H.waitFrame();
+    const wLow = vExtent(370);
+    const nLow = inked();
+    await reset();
+    TL.setTool(id);
+    await H.playStroke(H.pathLine(120, 180, 620, 180, 240, () => 0.95), { hz: 200 });
+    await H.waitFrame();
+    const wHigh = vExtent(370);
+    R.tools[id] = {
+      nib: TL.TOOLS[id].nib,
+      widthLow: +wLow.toFixed(2), widthHigh: +wHigh.toFixed(2),
+      ratio: wLow > 0 ? +(wHigh / wLow).toFixed(2) : null,
+      inkedLow: nLow,
+    };
+  }
+
+  ok('TOOLS every tool actually puts ink on the paper',
+     Object.values(R.tools).every(t => t.widthHigh > 0.5),
+     JSON.stringify(Object.fromEntries(
+       Object.entries(R.tools).map(([k, v]) => [k, v.widthHigh]))));
+  ok('TOOLS the brush is strongly pressure-driven (width ratio > 2)',
+     R.tools.brush.ratio > 2, 'ratio=' + R.tools.brush.ratio);
+  ok('TOOLS the marker is nearly pressure-independent (width ratio < 1.6)',
+     R.tools.marker.ratio < 1.6, 'ratio=' + R.tools.marker.ratio);
+  ok('TOOLS the brush responds to pressure more than the marker',
+     R.tools.brush.ratio > R.tools.marker.ratio,
+     `brush=${R.tools.brush.ratio} marker=${R.tools.marker.ratio}`);
+  ok('TOOLS the pencil is thinner than the brush at the same pressure',
+     R.tools.pencil.widthHigh < R.tools.brush.widthHigh,
+     `pencil=${R.tools.pencil.widthHigh} brush=${R.tools.brush.widthHigh}`);
+  ok('TOOLS the reed pen keeps the flat nib',
+     R.tools.reed.nib === 'flat', R.tools.reed.nib);
+  ok('TOOLS every painting tool uses the round nib',
+     ['pencil', 'brush', 'marker', 'water'].every(k => R.tools[k].nib === 'round'),
+     JSON.stringify(Object.fromEntries(
+       Object.entries(R.tools).map(([k, v]) => [k, v.nib]))));
+
+  // ابزار نباید فشار را از کار بیندازد: پهنا باید یکنوا صعودی بمانَد
+  {
+    await reset();
+    TL.setTool('brush');
+    H.setControl('size', 10); H.setControl('angle', 90);
+    window.__qalamSyncConfig();
+    const widths = [];
+    for (const p of [0.1, 0.3, 0.5, 0.7, 0.95]) {
+      await reset();
+      TL.setTool('brush');
+      await H.playStroke(H.pathLine(120, 180, 620, 180, 200, () => p), { hz: 200 });
+      await H.waitFrame();
+      widths.push(+vExtent(370).toFixed(2));
+    }
+    R.brushWidthByPressure = widths;
+    ok('TOOLS brush width is monotonic in pressure',
+       widths.every((v, i) => i === 0 || v >= widths[i - 1]), widths.join(','));
+  }
+  // بازگشت به قلمِ نی تا بقیهٔ آزمون‌ها دست‌نخورده بمانند
+  TL.setTool('reed');
+
+  R.failures = R.checks.filter(c => !c.ok).length;
+  out.textContent = JSON.stringify(R, null, 1);
+  post(R);
+})();
+</script>
+</body></html>

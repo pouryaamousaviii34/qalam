@@ -1,0 +1,20 @@
+{
+ "testId": "RULE-PEN-002",
+ "ruleId": "RULE-PEN-002",
+ "sourcePages": [
+  6
+ ],
+ "input": {
+  "penClass": "مشقی"
+ },
+ "expected": {
+  "minMm": 2,
+  "maxMm": 6
+ },
+ "tolerance": {
+  "mm": 0.01
+ },
+ "status": "READY",
+ "requiresEngine": false,
+ "note": null
+}

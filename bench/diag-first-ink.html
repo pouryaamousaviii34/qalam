@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>Qalam — First-Sample / Pressure / Ink Diagnostics</title>
+<style>
+ body{margin:0;font:12px/1.5 monospace;background:#14120f;color:#e6ddcb}
+ #out{padding:10px;white-space:pre-wrap}
+ #app{position:absolute;left:-5000px;top:0}
+</style>
+</head>
+<body>
+<pre id="out">RUNNING…</pre>
+<script src="harness.js"></script>
+<script>
+/* =====================================================================
+   diag-first-ink.html — ابزارِ اندازه‌گیری برای سه مسئله
+   ---------------------------------------------------------------------
+     ۱) نمونهٔ نخستِ استروک: آیا با فشارِ واقعی رسم می‌شود؟
+     ۲) خطِ لولهٔ فشار: مقدار در *هر مرحله* چه می‌شود؟ (مرورگرمستقل)
+     ۳) مرکب: آیا چگالی/نشست واقعاً در پیکسل‌ها دیده می‌شود یا اشباع
+        شده و خط «تختِ برداری» است؟
+
+   اجرا (در هر دو مرورگر):
+     node bench/collect.js chrome  bench/diag-first-ink.html
+     node bench/collect.js firefox bench/diag-first-ink.html
+
+   این صفحه هیچ چیزی را «درست» نمی‌کند؛ فقط عدد می‌دهد.
+   ===================================================================== */
+(async function () {
+  const H = window.QalamHarness;
+  const out = document.getElementById('out');
+  const R = { ua: navigator.userAgent, secure: !!window.isSecureContext };
+
+  function post(obj) {
+    try {
+      fetch('/__result', { method: 'POST', body: JSON.stringify(obj) });
+    } catch (_) {}
+  }
+  window.onerror = function (m, s, l, c, e) {
+    R.fatal = String(m) + ' @' + s + ':' + l + (e && e.stack ? '\n' + e.stack : '');
+    out.textContent = R.fatal;
+    post(R);
+  };
+
+  H.instrumentRaf();
+  H.buildDOM(900, 620);
+  await new Promise(r => setTimeout(r, 60));
+  await H.loadEngine('../stylus.js');
+  await H.loadEngine('../qalam-engine.js');
+  await H.loadEngine('../app.js');
+  await new Promise(r => setTimeout(r, 150));
+
+  const T = window.__qalamTest;
+  const QS = window.QalamStylus;
+  const QE = window.QalamEngine;
+  if (!T || !QS || !QE) { R.fatal = 'engine not exposed'; out.textContent = R.fatal; return post(R); }
+
+  const ink = T.inkCanvas;
+  const ictx = ink.getContext('2d', { willReadFrequently: true });
+  const clearBtn = document.getElementById('clear');
+
+  /* ================================================================
+     ۰) قابلیت‌های مرورگر — مشاهده‌شده، نه حدس‌زده
+     ================================================================ */
+  R.api = QS.detectApi();
+  R.harnessCoalescedInit = H.supportsCoalescedInit;
+
+  /* ================================================================
+     ابزارِ اندازه‌گیریِ پیکسلی
+     ================================================================ */
+  const D = () => T.dims();
+
+  // ضخامتِ عمودیِ مرکب در ستونِ x (px منطقی)، آستانهٔ آلفا قابل تنظیم
+  function vExtent(x, aMin) {
+    const d = D(), px = Math.round(x * d.dpr);
+    if (px < 0 || px >= ink.width) return 0;
+    const img = ictx.getImageData(px, 0, 1, ink.height).data;
+    let top = -1, bot = -1;
+    const th = aMin === undefined ? 8 : aMin;
+    for (let r = 0; r < ink.height; r++) {
+      if (img[r * 4 + 3] > th) { if (top < 0) top = r; bot = r; }
+    }
+    return top < 0 ? 0 : (bot - top + 1) / d.dpr;
+  }
+
+  // نمایهٔ آلفا در یک ستون: از بالا به پایین، فقط بازهٔ مرکب‌دار
+  function column(x) {
+    const d = D(), px = Math.round(x * d.dpr);
+    const img = ictx.getImageData(px, 0, 1, ink.height).data;
+    const a = [];
+    for (let r = 0; r < ink.height; r++) a.push(img[r * 4 + 3]);
+    return a;
+  }
+
+  // بیشینهٔ آلفا در ستونِ x (سنجهٔ «پوششِ خط»)
+  function coreAlpha(x) {
+    const a = column(x);
+    let m = 0;
+    for (let i = 0; i < a.length; i++) if (a[i] > m) m = a[i];
+    return m;
+  }
+
+  /* تیرگیِ هستهٔ خط در ستونِ x
+     ---------------------------------------------------------------------
+     مهم: پس از رفعِ مسئلهٔ ۳، تُنِ مرکب در *رنگ* کدگذاری می‌شود نه در
+     آلفا (چون آلفای هسته باید ۱ باشد تا انباشتِ ۱۱ برابری رخ نده). پس
+     سنجهٔ درست، روشناییِ پیکسل‌های پوشیده است، نه آلفا. */
+  function coreLuma(x) {
+    const d = D(), px = Math.round(x * d.dpr);
+    if (px < 0 || px >= ink.width) return null;
+    const img = ictx.getImageData(px, 0, 1, ink.height).data;
+    let best = null;
+    for (let r = 0; r < ink.height; r++) {
+      const a = img[r * 4 + 3];
+      if (a < 200) continue;   // فقط پیکسل‌های کاملاً پوشیده
+      const l = 0.2126 * img[r * 4] + 0.7152 * img[r * 4 + 1] + 0.0722 * img[r * 4 + 2];
+      if (best === null || l < best) best = l;   // تیره‌ترین = هستهٔ خط
+    }
+    return best === null ? null : +best.toFixed(2);
+  }
+
+  // مقطعِ عرضیِ خطِ افقی در ستونِ x: [آلفا از لبهٔ بالا به لبهٔ پایین]
+  function crossSection(x) {
+    const a = column(x);
+    let top = -1, bot = -1;
+    for (let i = 0; i < a.length; i++) if (a[i] > 4) { if (top < 0) top = i; bot = i; }
+    if (top < 0) return [];
+    return a.slice(top, bot + 1);
+  }
+
+  const reset = async () => { clearBtn.click(); await H.waitFrame(); await H.waitFrame(); };
+
+  /* ================================================================
+     پیکربندیِ ثابتِ آزمون — نوکِ درشت تا اندازه‌گیری دقیق باشد
+     ================================================================ */
+  function setup(opts) {
+    opts = opts || {};
+    H.setControl('size', opts.size === undefined ? 10 : opts.size);
+    H.setControl('nibRatio', 2);      // nibWidth = size × 2 = 20px
+    H.setControl('nibThick', 1);
+    H.setControl('pressure', 1);
+    H.setControl('opacity', 100);
+    H.setControl('angle', 90);        // لبه عمود بر حرکتِ افقی ⇒ پهنای بیشینه
+    H.setControl('smooth', 0);
+    document.getElementById('nib').value = 'flat';
+    document.getElementById('nib').dispatchEvent(new Event('change', { bubbles: true }));
+    if (window.__qalamSyncConfig) window.__qalamSyncConfig();
+  }
+
+  /* خطِ افقیِ ساده با فشار و سرعتِ ثابت.
+     hzDt: فاصلهٔ زمانیِ نمونه‌های سخت‌افزار (ms)
+     stepPx: جابه‌جایی در هر نمونهٔ سخت‌افزار  ⇒ سرعت = stepPx/hzDt */
+  function line(y, x0, x1, stepPx, hzDt, pressureFn) {
+    const n = Math.max(2, Math.round((x1 - x0) / stepPx) + 1);
+    const t0 = performance.now();
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const u = i / (n - 1);
+      out.push({ x: x0 + (x1 - x0) * u, y: y,
+                 pressure: pressureFn(u, i), t: t0 + i * hzDt });
+    }
+    return out;
+  }
+
+  async function play(samples, opt) {
+    return H.playStroke(samples, Object.assign({ hz: 200, framesPerSec: 60 }, opt || {}));
+  }
+
+  const lastStroke = () => {
+    const s = T.strokes;
+    return s.length ? s[s.length - 1] : [];
+  };
+
+  /* ================================================================
+     ۱) رفتارِ نمونهٔ نخست — «مهرِ تمام‌پهنا در آغاز»
+     ================================================================
+     برای هر فشارِ ثابت:
+       • ضخامتِ رسم‌شده در ابتدای مسیر vs میانهٔ مسیر
+       • پهنای مدلی (cw) برای نمونهٔ اول vs میانه
+       • لاگِ ۵ رویدادِ نخست (از خودِ app.js)
+     ================================================================ */
+  R.firstSample = [];
+  for (const p of [0.1, 0.25, 0.5, 0.75, 1.0]) {
+    await reset();
+    setup();
+    const y = 300, x0 = 120, x1 = 620;
+    // فشارِ کاملاً ثابت: هر تفاوتی که ببینیم از خودِ موتور است
+    await play(line(y, x0, x1, 1.5, 5, () => p));
+    await H.waitFrame();
+
+    const recs = lastStroke();
+    const cw = recs.map(r => +r.cw.toFixed(3));
+    const mid = cw.length ? cw[Math.floor(cw.length / 2)] : 0;
+    // ضخامتِ پیکسلی در چند فاصله از نقطهٔ شروع
+    const prof = {};
+    for (const dx of [0, 1, 2, 4, 8, 16, 32, 64, 128, 250]) prof[dx] = +vExtent(x0 + dx).toFixed(2);
+
+    R.firstSample.push({
+      pressure: p,
+      firstEvents: (window.__qalamFirstEvents || []).slice(),
+      modelWidth: { first: cw[0], second: cw[1], third: cw[2], mid: mid,
+                    max: cw.length ? Math.max.apply(null, cw) : 0,
+                    argmaxIndex: cw.indexOf(cw.length ? Math.max.apply(null, cw) : 0),
+                    n: cw.length },
+      // نسبتِ «پهن‌ترین نمونه» به «نمونهٔ میانه» — >1.15 یعنی artifact
+      modelOvershoot: mid > 0 ? +(Math.max.apply(null, cw) / mid).toFixed(3) : null,
+      pixelExtentByDistance: prof,
+      pixelOvershoot: prof[128] > 0 ? +(prof[0] / prof[128]).toFixed(3) : null,
+    });
+  }
+
+  /* ================================================================
+     ۲) وقتی pointerdown فشارِ «پیش‌فرضِ استاندارد» می‌دهد
+     ================================================================
+     [PE3] §4.1: سخت‌افزارِ بی‌حسِ فشار در حالتِ فعالِ دکمه *باید* 0.5
+     بدهد. پس 0.5 «فشارِ نامعلوم» است. این آزمون همان سناریوی واقعیِ
+     Chrome است: pointerdown با 0.5، سپس نمونه‌های واقعی با 0.15.
+     ================================================================ */
+  R.defaultHalfOnDown = await (async function () {
+    await reset();
+    setup();
+    const y = 300, x0 = 120, x1 = 620;
+    const s = line(y, x0, x1, 1.5, 5, (u, i) => (i === 0 ? 0.5 : 0.15));
+    await play(s);
+    await H.waitFrame();
+    const recs = lastStroke();
+    const cw = recs.map(r => +r.cw.toFixed(3));
+    const prof = {};
+    for (const dx of [0, 2, 4, 8, 16, 32, 64, 128, 250]) prof[dx] = +vExtent(x0 + dx).toFixed(2);
+    return {
+      note: 'pointerdown=0.5 (spec default for pressure-less hw), rest=0.15',
+      firstEvents: (window.__qalamFirstEvents || []).slice(),
+      modelWidth: cw.slice(0, 14),
+      midWidth: cw.length ? cw[Math.floor(cw.length / 2)] : 0,
+      // چند نمونه طول می‌کشد تا پهنا به ۱۰٪ مقدارِ نهایی برسد؟
+      samplesToSettle: (function () {
+        if (!cw.length) return null;
+        const target = cw[Math.floor(cw.length / 2)];
+        for (let i = 0; i < cw.length; i++) {
+          if (Math.abs(cw[i] - target) <= target * 0.1) return i;
+        }
+        return -1;
+      })(),
+      pixelExtentByDistance: prof,
+    };
+  })();
+
+  /* همان سناریو، ولی pointerdown با فشارِ واقعی ⇒ مرجعِ مقایسه */
+  R.trueLowOnDown = await (async function () {
+    await reset();
+    setup();
+    const y = 300, x0 = 120, x1 = 620;
+    await play(line(y, x0, x1, 1.5, 5, () => 0.15));
+    await H.waitFrame();
+    const cw = lastStroke().map(r => +r.cw.toFixed(3));
+    const prof = {};
+    for (const dx of [0, 2, 4, 8, 16, 32, 64, 128, 250]) prof[dx] = +vExtent(120 + dx).toFixed(2);
+    return { modelWidth: cw.slice(0, 14),
+             midWidth: cw.length ? cw[Math.floor(cw.length / 2)] : 0,
+             pixelExtentByDistance: prof };
+  })();
+
+  /* ================================================================
+     ۳) فشار = ۰ باید معتبر باشد (نه «نداشتن»)
+     ================================================================ */
+  R.zeroPressure = (function () {
+    const n = QS.normalizeRawPressure;
+    return {
+      zero: n(0), half: n(0.5), one: n(1),
+      undef: n(undefined), nul: n(null), nan: n(NaN),
+      neg: n(-3), over: n(5), str: n('0.4'),
+      INVALID: QS.PRESSURE_INVALID,
+      zeroIsValid: n(0) === 0,
+      undefIsInvalid: n(undefined) === QS.PRESSURE_INVALID,
+    };
+  })();
+
+  /* ================================================================
+     ۴) خطِ لولهٔ فشار مرحله‌به‌مرحله (همان کدی که app.js اجرا می‌کند)
+     ================================================================ */
+  R.pipeline = (function () {
+    const cal = new QS.PressureCalibration();
+    const cfg = QE.createConfig({ nibWidth: 20, nibThickness: 1, nibAngle: 90 });
+    const c = new QE.ContactState();
+    const rows = [];
+    for (const raw of [0, 0.05, 0.1, 0.15, 0.25, 0.5, 0.75, 1]) {
+      cal.reset();
+      // ۲۵ نمونه تا EMA به مقدارِ پایدار برسد ⇒ اثرِ گذرا حذف شود
+      let mapped = 0;
+      for (let i = 0; i < 25; i++) mapped = cal.process(raw);
+      QE.computeContact(c, cfg, mapped, cfg.velocityRef, 0, null, 0);
+      rows.push({
+        raw: raw,
+        normalized: +cal.normalized.toFixed(4),
+        filtered: +cal.filtered.toFixed(4),
+        mapped: +mapped.toFixed(4),
+        contactWidth: +c.width.toFixed(3),
+        widthRatioOfNib: +(c.width / 20).toFixed(4),
+        thickness: +c.thickness.toFixed(3),
+        apparent: +c.apparent.toFixed(3),
+      });
+    }
+    return rows;
+  })();
+
+  /* ================================================================
+     ۵) اشباعِ مرکب — ریشهٔ «خطِ تختِ برداری»
+     ================================================================
+     همان خط را با سرعتِ کم و سرعتِ زیاد می‌کشیم و آلفای هستهٔ خط را
+     می‌سنجیم. اگر هر دو ۲۵۵ باشند، تمامِ مدلِ چگالی/نشست در پیکسل‌ها
+     ناپدید شده است.
+     ================================================================ */
+  R.inkSaturation = await (async function () {
+    const res = {};
+    // آهسته: 0.6px در هر 8ms  ⇒ 0.075px/ms  (≈ ۰٫۱۸ سرعتِ مرجع)
+    await reset(); setup();
+    await play(line(200, 120, 420, 0.6, 8, () => 0.7));
+    await H.waitFrame();
+    res.slow = { coreAlpha: coreAlpha(300), coreLuma: coreLuma(300),
+                 extent: +vExtent(300).toFixed(2),
+                 recDens: +(lastStroke()[10] || {}).dens?.toFixed(4),
+                 recInk: +(lastStroke()[10] || {}).inkAmt?.toFixed(4) };
+
+    // تند: 4px در هر 4ms ⇒ 1.0px/ms (≈ ۲٫۴ سرعتِ مرجع)
+    await reset(); setup();
+    await play(line(200, 120, 420, 4, 4, () => 0.7));
+    await H.waitFrame();
+    res.fast = { coreAlpha: coreAlpha(300), coreLuma: coreLuma(300),
+                 extent: +vExtent(300).toFixed(2),
+                 recDens: +(lastStroke()[10] || {}).dens?.toFixed(4),
+                 recInk: +(lastStroke()[10] || {}).inkAmt?.toFixed(4) };
+
+    // یک گذر vs دو گذر روی همان مسیر
+    await reset(); setup();
+    await play(line(200, 120, 420, 1.5, 5, () => 0.7));
+    await H.waitFrame();
+    res.onePass = coreAlpha(300); res.onePassLuma = coreLuma(300);
+    await play(line(200, 120, 420, 1.5, 5, () => 0.7));
+    await H.waitFrame();
+    res.twoPass = coreAlpha(300); res.twoPassLuma = coreLuma(300);
+    await play(line(200, 120, 420, 1.5, 5, () => 0.7));
+    await H.waitFrame();
+    res.threePass = coreAlpha(300); res.threePassLuma = coreLuma(300);
+
+    // مقطعِ عرضی: پروفایلِ چگالی از لبه تا هسته
+    await reset(); setup();
+    await play(line(200, 120, 420, 1.5, 5, () => 0.7));
+    await H.waitFrame();
+    res.crossSectionMid = crossSection(300);
+    res.crossSectionNearStart = crossSection(124);
+    res.crossSectionLuma = (function () {
+      const d = D(), px = Math.round(300 * d.dpr);
+      const img = ictx.getImageData(px, 0, 1, ink.height).data;
+      const o = [];
+      for (let r = 0; r < ink.height; r++) {
+        if (img[r * 4 + 3] > 4) {
+          o.push([img[r * 4 + 3],
+                  Math.round(0.2126 * img[r * 4] + 0.7152 * img[r * 4 + 1] +
+                             0.0722 * img[r * 4 + 2])]);
+        }
+      }
+      return o;
+    })();
+
+    // تیرگیِ هسته در طولِ خط — یکنواختیِ کاملاً تخت = مشکل
+    const along = [], alongL = [];
+    for (let x = 130; x <= 410; x += 20) { along.push(coreAlpha(x)); alongL.push(coreLuma(x)); }
+    res.coreAlphaAlong = along;
+    res.coreLumaAlong = alongL;
+    res.coreAlphaSpread = Math.max.apply(null, along) - Math.min.apply(null, along);
+    res.coreLumaSpread = +(Math.max.apply(null, alongL) - Math.min.apply(null, alongL)).toFixed(2);
+    return res;
+  })();
+
+  /* ================================================================
+     ۶) تجمعِ مرکب در توقف (pooling) — دیده می‌شود؟
+     ================================================================ */
+  R.pooling = await (async function () {
+    await reset(); setup();
+    // خط، سپس ۳۰ نمونهٔ بی‌حرکت در وسط، سپس ادامه
+    const t0 = performance.now();
+    const s = [];
+    let t = t0;
+    for (let i = 0; i < 60; i++) { s.push({ x: 120 + i * 2, y: 200, pressure: 0.8, t: t }); t += 5; }
+    for (let i = 0; i < 40; i++) { s.push({ x: 240, y: 200, pressure: 0.8, t: t }); t += 8; }
+    for (let i = 1; i <= 60; i++) { s.push({ x: 240 + i * 2, y: 200, pressure: 0.8, t: t }); t += 5; }
+    await play(s);
+    await H.waitFrame();
+    const recs = lastStroke();
+    // نشستِ مدل در اطرافِ توقف — برای تفکیکِ «مدل» از «رستر»
+    const inkByIndex = recs.map(r => +(r.inkAmt || 0).toFixed(3));
+    const scan = {};
+    for (const x of [200, 230, 238, 240, 241, 242, 244, 248, 256, 280, 300]) {
+      scan[x] = { luma: coreLuma(x), extent: +vExtent(x).toFixed(2) };
+    }
+    return {
+      scan: scan,
+      modelInkMin: Math.min.apply(null, inkByIndex),
+      modelInkMax: Math.max.apply(null, inkByIndex),
+      modelInkAtStopRegion: inkByIndex.slice(
+        Math.max(0, Math.floor(inkByIndex.length * 0.45)),
+        Math.floor(inkByIndex.length * 0.62)),
+      extentBefore: +vExtent(200).toFixed(2),
+      extentAtStop: +vExtent(240).toFixed(2),
+      extentAfter: +vExtent(300).toFixed(2),
+      lumaBefore: coreLuma(200), lumaAtStop: coreLuma(241), lumaAfter: coreLuma(300),
+    };
+  })();
+
+  /* ================================================================
+     ۷) دوباره‌پردازشِ رویداد (نباید وجود داشته باشد)
+     ================================================================ */
+  R.duplicateProcessing = await (async function () {
+    await reset(); setup();
+    const before = T.stats ? T.stats.events : window.__qalamStats.events;
+    const s = line(400, 120, 620, 1.5, 5, () => 0.7);
+    await play(s, { rawUpdate: true });
+    await H.waitFrame();
+    const st = window.__qalamStats;
+    return {
+      hardwareSamples: s.length,
+      eventsIngested: st.events - before,
+      ratio: +((st.events - before) / s.length).toFixed(3),
+      rawUpdateSeen: T.rawUpdateSeen,
+      coalesced: window.__qalamCoalesced,
+      samples: st.samples,
+    };
+  })();
+
+  R.integrity = window.__qalamIntegrity;
+  R.capabilities = T.capabilities();
+
+  out.textContent = JSON.stringify(R, null, 1);
+  post(R);
+})();
+</script>
+</body>
+</html>

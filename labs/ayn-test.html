@@ -1,0 +1,181 @@
+<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8">
+<title>آزمون حرف ع</title><link rel="stylesheet" href="_style.css"></head>
+<body>
+<header><h1>آزمون حرف «ع» — ترتیب و جهتِ نوشتن</h1><a href="index.html">آزمایشگاه</a></header>
+<main>
+<div class="card"><h2>مرجع / خروجی موتور / روی‌هم</h2>
+<div class="grid">
+  <figure><img id="sRef" class="shot"><figcaption>مرجع (از تصویر شما)</figcaption></figure>
+  <figure><img id="sOut" class="shot"><figcaption>موتور قلم نی</figcaption></figure>
+  <figure><img id="sOv" class="shot"><figcaption>روی‌هم (سبز=مشترک، سرخ=کم، آبی=زیاد)</figcaption></figure>
+</div></div>
+<div class="card"><h2>سنجش</h2><div id="tbl"></div></div>
+<div class="card"><h2>چهار حرکت، به ترتیب</h2><div class="grid" id="steps"></div></div>
+</main>
+<script src="../bench/harness.js"></script><script src="lab.js"></script>
+<script>
+window.__ayn = (async function () {
+  const L = window.QalamLab;
+  await L.boot();
+  const T = L.T, H = L.H;
+
+  /* ---------- ۱) نقابِ مرجع از تصویر ---------- */
+  const img = new Image();
+  await new Promise((res, rej) => { img.onload = res; img.onerror = rej;
+                                    img.src = 'ref/ayn-ref.png'; });
+  const RW = img.width, RH = img.height;
+  const rc = document.createElement('canvas'); rc.width = RW; rc.height = RH;
+  const rx = rc.getContext('2d'); rx.drawImage(img, 0, 0);
+  const rd = rx.getImageData(0, 0, RW, RH).data;
+  const INSET = 14;                       // کادرِ سیاهِ اسکرین‌شات
+  const refMask = new Uint8Array(RW * RH);
+  let rn = 0;
+  for (let i = 0; i < RW * RH; i++) {
+    const px = i % RW, py = (i / RW) | 0;
+    if (px < INSET || py < INSET || px >= RW - INSET || py >= RH - INSET) continue;
+    const r = rd[i * 4], g = rd[i * 4 + 1], b = rd[i * 4 + 2];
+    if (r > 110 && r > g * 1.7 && r > b * 1.7) continue;   // فلش‌های قرمز
+    if (r * 0.299 + g * 0.587 + b * 0.114 < 110) { refMask[i] = 1; rn++; }
+  }
+  // تصویرِ مرجعِ پاک‌شده
+  const rvis = document.createElement('canvas'); rvis.width = RW; rvis.height = RH;
+  const rvx = rvis.getContext('2d');
+  rvx.fillStyle = '#fff'; rvx.fillRect(0, 0, RW, RH);
+  rvx.fillStyle = '#2a1d10';
+  for (let i = 0; i < RW * RH; i++) if (refMask[i]) rvx.fillRect(i % RW, (i / RW) | 0, 1, 1);
+  document.getElementById('sRef').src = rvis.toDataURL('image/png');
+
+  /* ---------- ۲) چهار حرکتِ «ع» در مختصاتِ همان تصویر ----------
+     ترتیب و جهت از فلش‌های ۱..۴ تصویر:
+       ۱) بالای سر، به سمت راست/پایین
+       ۲) پایین-چپِ سر، به سمت راست/بالا
+       ۳) نوکِ راستِ سر، به سمت چپ
+       ۴) کاسه: از گردن پایین، دورِ ته، و کشیده به راست تا نوکِ تیز
+     ------------------------------------------------------------------ */
+  const P = Math.PI, D = P / 180;
+  /* هندسه از سنجشِ نقابِ مرجع گرفته شده:
+       سرِ حرف : y 14…95 ، باریک‌ترین جای بالا x 147…159 (۱۳px) ،
+                باندِ ضخیمِ y≈56 از x 137 تا 198 ، شاخکِ راست تا (215,80)
+       کاسه   : چپ‌ترین x≈113 در y≈170 ، ته y≈225 ، نوکِ راست (279,141) */
+  const strokes = [
+    // ۱) بالای سر: از چپ به راست/پایین (فلشِ ۱)
+    { name: '۱ بالای سر →',
+      pts: (function () {
+        const o = [];
+        for (let i = 0; i < 55; i++) {
+          const u = i / 54;
+          o.push({ x: 133 + 62 * u, y: 30 - 12 * Math.sin(u * P) + 26 * u * u });
+        }
+        return o;
+      })(),
+      press: u => 0.22 + 0.5 * u },
+    // ۲) پایین-چپِ سر: از چپ به راست/بالا (فلشِ ۲)
+    { name: '۲ پایین-چپِ سر →',
+      pts: L.arc(168, 52, 40, 200 * D, 120 * D, 50),
+      press: u => 0.75 - 0.30 * u },
+    // ۳) شاخکِ راستِ سر: از راست به چپ (فلشِ ۳)
+    { name: '۳ شاخکِ راست ←',
+      pts: (function () {
+        const o = [];
+        for (let i = 0; i < 40; i++) {
+          const u = i / 39;
+          o.push({ x: 216 - 44 * u, y: 80 - 20 * u });
+        }
+        return o;
+      })(),
+      press: u => 0.30 + 0.25 * (1 - u) },
+    // ۴) کاسه: گردن → نزول به چپ → ته → کشیدهٔ راست تا نوکِ تیز (فلشِ ۴)
+    { name: '۴ کاسه →',
+      pts: (function () {
+        const a = L.arc(168, 150, 58, -128 * D, 60 * D, 130);   // نزول، چپ، ته
+        const b = [];
+        for (let i = 1; i < 95; i++) {                           // کشیدهٔ راست
+          const u = i / 94;
+          b.push({ x: 197 + 84 * u, y: 200 - 52 * u - 8 * u * u });
+        }
+        return a.concat(b);
+      })(),
+      press: u => (u < 0.10 ? 0.40 + 4.2 * u
+                 : (u < 0.68 ? 0.82 : 0.82 - 0.74 * (u - 0.68) / 0.32)) },
+  ];
+
+  /* ---------- ۳) تنظیمِ قلم ----------
+     از خودِ مرجع: باریک‌ترین جاها ≈۱۳px و ته کاسه چند برابرِ آن ⇒ نسبتِ
+     ضخیم/نازک ≈۴، نه ۲۵. پس تیغه باید کلفت‌تر از پیش‌فرض باشد. */
+  /* از مرجع: باریک‌ترین جاها ≈۱۳px و ضخیم‌ترین ≈۴۵px ⇒ نسبت ≈۳٫۵
+     پس تیغه باید ~۱/۴ پهنای نوک باشد، نه ~۱/۲۵ که پیش‌فرضِ پروژه است.
+     محدودیت: maxThickness() ضخامتِ تیغه را روی ۸px سقف می‌زند، پس
+     پهنای نوک را متناسب با همان ۸px انتخاب می‌کنیم. */
+  L.set('angle', 122); L.set('smooth', 0.5); L.set('nib', 'flat');
+  // پهنا و ضخامت *مستقل*: نسبتِ ضخیم/نازکِ مرجع ≈ 45/13 ≈ 3.5
+  T.TUNE.nibWidthPx = 45;
+  T.TUNE.nibThicknessPx = 13;
+  T.TUNE.heelLift = 0.7;
+  T.TUNE.tailLength = 46;
+  T.TUNE.nibWidthMm = 0;
+  T.syncConfig();
+
+  await L.clear();
+  const dims = T.dims();
+  const stepImgs = [];
+  for (const s of strokes) {
+    L.stroke(s.pts, s.press, 7);
+    await H.waitFrame();
+    stepImgs.push({ name: s.name, png: L.snapshot(null, 90, 0, 230, 240, 1) });
+  }
+  await H.waitFrame();
+
+  /* ---------- ۴) مقایسه ---------- */
+  const outMask = new Uint8Array(RW * RH);
+  const od = L.ictx.getImageData(0, 0, L.ink.width, L.ink.height).data;
+  let on = 0;
+  for (let py = 0; py < RH; py++) {
+    for (let px = 0; px < RW; px++) {
+      const qx = Math.round(px * dims.dpr), qy = Math.round(py * dims.dpr);
+      if (qx < 0 || qy < 0 || qx >= L.ink.width || qy >= L.ink.height) continue;
+      if (od[(qy * L.ink.width + qx) * 4 + 3] > 40) { outMask[py * RW + px] = 1; on++; }
+    }
+  }
+  let inter = 0, uni = 0, missing = 0, extra = 0;
+  const ov = document.createElement('canvas'); ov.width = RW; ov.height = RH;
+  const ox = ov.getContext('2d');
+  ox.fillStyle = '#fff'; ox.fillRect(0, 0, RW, RH);
+  for (let i = 0; i < RW * RH; i++) {
+    const a = refMask[i], b = outMask[i];
+    if (a || b) uni++;
+    if (a && b) { inter++; ox.fillStyle = '#2e7d4f'; }
+    else if (a) { missing++; ox.fillStyle = '#c0392b'; }
+    else if (b) { extra++; ox.fillStyle = '#2b6cb0'; }
+    else continue;
+    ox.fillRect(i % RW, (i / RW) | 0, 1, 1);
+  }
+  document.getElementById('sOut').src = L.snapshot(null, 0, 0, RW, RH, 1);
+  document.getElementById('sOv').src = ov.toDataURL('image/png');
+  document.getElementById('steps').innerHTML = stepImgs.map(s =>
+    '<figure><img class="shot" style="width:150px" src="' + s.png +
+    '"><figcaption>' + s.name + '</figcaption></figure>').join('');
+
+  const iou = inter / Math.max(1, uni);
+  const cover = inter / Math.max(1, rn);
+  L.table('tbl', ['سنجه', 'مقدار'], [
+    ['پیکسل مرجع', rn], ['پیکسل موتور', on],
+    ['اشتراک', inter], ['IoU', (iou * 100).toFixed(1) + '%'],
+    ['پوششِ مرجع', (cover * 100).toFixed(1) + '%'],
+    ['کمبود (سرخ)', missing], ['اضافه (آبی)', extra],
+    ['نسبت پیکسل موتور/مرجع', (on / Math.max(1, rn)).toFixed(3)],
+  ]);
+  return { refPixels: rn, outPixels: on, intersection: inter,
+           iou: +(iou * 100).toFixed(1), coverage: +(cover * 100).toFixed(1),
+           missing: missing, extra: extra,
+           outPng: L.snapshot(null, 0, 0, RW, RH, 1),
+           overlayPng: ov.toDataURL('image/png') };
+})();
+window.__ayn.then(r=>{
+  const j=JSON.stringify({iou:r.iou,coverage:r.coverage,refPixels:r.refPixels,
+    outPixels:r.outPixels,missing:r.missing,extra:r.extra,
+    out:r.outPng, ov:r.overlayPng});
+  try{navigator.sendBeacon('/__result',j);}catch(e){}
+  try{const x=new XMLHttpRequest();x.open('POST','/__result',true);x.send(j);}catch(e){}
+  window.__aynDone=r;
+});
+</script></body></html>

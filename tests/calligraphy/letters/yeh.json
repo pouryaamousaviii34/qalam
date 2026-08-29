@@ -1,0 +1,17 @@
+{
+ "testId": "LETTER-yeh",
+ "letter": "ی",
+ "letterId": "yeh",
+ "sourcePages": [
+  23,
+  8
+ ],
+ "strokeCount": "UNKNOWN",
+ "strokeOrder": "UNKNOWN",
+ "direction": "UNKNOWN",
+ "expectedGeometry": "UNKNOWN",
+ "expectedProportions": "UNKNOWN",
+ "status": "PROVISIONAL",
+ "requiresEngine": false,
+ "note": "حرف صفحهٔ مشقِ اختصاصی دارد، ولی کتاب ترتیب/جهتِ حرکت را علامت‌گذاری نکرده است. آزمونِ هندسی تا روشن‌شدنِ ترتیب معلق است."
+}

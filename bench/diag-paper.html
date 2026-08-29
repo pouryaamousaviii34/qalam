@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head><meta charset="UTF-8"><title>paper themes + export quality</title>
+<style>body{margin:0;font:12px/1.5 monospace;background:#14120f;color:#e6ddcb}
+#out{padding:10px;white-space:pre-wrap}#app{position:absolute;left:-5000px;top:0}</style>
+</head>
+<body>
+<pre id="out">…</pre>
+<script src="harness.js"></script>
+<script>
+/* =====================================================================
+   diag-paper.html — سنجشِ تم‌های کاغذ و کیفیتِ خروجی
+   ---------------------------------------------------------------------
+   «شبیهِ تصویرِ مرجع است یا نه» را نمی‌شود با نگاه‌کردن ثابت کرد؛ این‌جا
+   پالتِ کاغذِ *رندرشده* استخراج و با پالتِ اندازه‌گیری‌شدهٔ تصویرِ مرجع
+   مقایسه می‌شود (هیستوگرامِ فام + فاصلهٔ رنگ‌های شاخص).
+   ===================================================================== */
+(async function () {
+  const H = window.QalamHarness;
+  const out = document.getElementById('out');
+  const R = { ua: navigator.userAgent, papers: {}, checks: [] };
+  const post = o => { try { fetch('/__result', { method: 'POST', body: JSON.stringify(o) }); } catch (_) {} };
+  const ok = (n, c, d) => R.checks.push({ name: n, ok: !!c, detail: String(d) });
+  window.onerror = (m, s, l, c, e) => {
+    R.fatal = String(m) + ' @' + l + (e && e.stack ? '\n' + e.stack : '');
+    out.textContent = R.fatal; post(R);
+  };
+
+  H.instrumentRaf();
+  H.buildDOM(760, 480);
+  await new Promise(r => setTimeout(r, 60));
+  await H.loadEngine('../stylus.js');
+  await H.loadEngine('../qalam-engine.js');
+  await H.loadEngine('../app.js');
+  await new Promise(r => setTimeout(r, 200));
+
+  const T = window.__qalamTest;
+  const paperTex = document.getElementById('paperTex');
+  const ink = T.inkCanvas;
+  const ptx = paperTex.getContext('2d', { willReadFrequently: true });
+  const ictx = ink.getContext('2d', { willReadFrequently: true });
+  const colorEl = document.getElementById('color');
+
+  function rgb2hls(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+    if (mx === mn) return [0, l, 0];
+    const d = mx - mn;
+    const s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    let h;
+    if (mx === r) h = ((g - b) / d + (g < b ? 6 : 0));
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    return [h * 60, l, s];
+  }
+  function hueBand(h) {
+    if (h < 60 || h > 330) return 'warm(0-60)';
+    if (h < 100) return 'yellow(60-100)';
+    if (h < 160) return 'green(100-160)';
+    if (h < 200) return 'cyan(160-200)';
+    if (h < 260) return 'blue(200-260)';
+    return 'violet(260-330)';
+  }
+  // هیستوگرامِ فام + میانگینِ حاشیه و مرکز، از خودِ بومِ رندرشده
+  function analysePaper() {
+    const w = paperTex.width, h = paperTex.height;
+    const d = ptx.getImageData(0, 0, w, h).data;
+    const hist = {};
+    let n = 0;
+    const step = Math.max(1, Math.floor(Math.sqrt(w * h / 30000)));
+    for (let y = 0; y < h; y += step) {
+      for (let x = 0; x < w; x += step) {
+        const i = (y * w + x) * 4;
+        const [hh, ll, ss] = rgb2hls(d[i], d[i + 1], d[i + 2]);
+        // پیکسل‌های بی‌رنگ (خاکستری) فام معنادار ندارند
+        if (ss < 0.06) { hist.neutral = (hist.neutral || 0) + 1; n++; continue; }
+        const b = hueBand(hh);
+        hist[b] = (hist[b] || 0) + 1;
+        n++;
+      }
+    }
+    for (const k in hist) hist[k] = Math.round(1000 * hist[k] / n) / 10;
+    function avg(x0, y0, x1, y1) {
+      let r = 0, g = 0, b = 0, m = 0;
+      for (let y = y0; y < y1; y += Math.max(1, (y1 - y0) >> 5)) {
+        for (let x = x0; x < x1; x += Math.max(1, (x1 - x0) >> 5)) {
+          const i = (y * w + x) * 4;
+          r += d[i]; g += d[i + 1]; b += d[i + 2]; m++;
+        }
+      }
+      return [Math.round(r / m), Math.round(g / m), Math.round(b / m)];
+    }
+    return {
+      size: [w, h],
+      hueHist: hist,
+      edge: avg(0, 0, w, Math.max(2, h * 0.04 | 0)),
+      corner: avg(0, 0, w * 0.06 | 0, h * 0.06 | 0),
+      center: avg(w * 0.35 | 0, h * 0.35 | 0, w * 0.65 | 0, h * 0.65 | 0),
+    };
+  }
+
+  // کنتراستِ مرکب روی این کاغذ (تفاضلِ روشناییِ خط و زمینه)
+  function inkContrast() {
+    const w = ink.width, h = ink.height;
+    const di = ictx.getImageData(0, 0, w, h).data;
+    const dp = ptx.getImageData(0, 0, w, h).data;
+    let best = 0, cnt = 0;
+    for (let i = 0; i < di.length; i += 4) {
+      if (di[i + 3] < 200) continue;
+      const li = 0.2126 * di[i] + 0.7152 * di[i + 1] + 0.0722 * di[i + 2];
+      const lp = 0.2126 * dp[i] + 0.7152 * dp[i + 1] + 0.0722 * dp[i + 2];
+      const d2 = Math.abs(li - lp);
+      if (d2 > best) best = d2;
+      cnt++;
+    }
+    return { inkedPixels: cnt, maxLumaDelta: Math.round(best) };
+  }
+
+  const clearBtn = document.getElementById('clear');
+  async function usePaper(id) {
+    const b = document.getElementById(id);
+    b.click();
+    await H.waitFrame(); await H.waitFrame();
+  }
+
+  for (const [key, btn] of [['daftari', 'paperDaftari'],
+                            ['tazhib', 'paperTazhib'],
+                            ['kashi', 'paperKashi']]) {
+    clearBtn.click();
+    await usePaper(btn);
+    const pal = analysePaper();
+    // یک خط بنویس تا کنتراستِ مرکب روی همین کاغذ سنجیده شود
+    H.setControl('size', 12); H.setControl('nibRatio', 3); H.setControl('angle', 109);
+    await H.playStroke(H.pathLine(140, 240, 620, 250, 240, () => 0.8), { hz: 200 });
+    await H.waitFrame();
+    R.papers[key] = {
+      penColor: colorEl.value,
+      paper: pal,
+      ink: inkContrast(),
+    };
+  }
+
+  /* ---- مقایسه با پالتِ اندازه‌گیری‌شدهٔ تصاویرِ مرجع ----------------
+     این اعداد از خودِ تصاویرِ مرجع با کوانتیزهٔ median-cut درآمده‌اند. */
+  const REF = {
+    tazhib: { hue: { 'warm(0-60)': 100 }, edge: [223, 196, 169], corner: [226, 206, 181] },
+    kashi: { hue: { 'blue(200-260)': 44.4, 'cyan(160-200)': 18.4, 'warm(0-60)': 21.0 },
+             center: [66, 68, 126] },
+  };
+  const dist = (a, b) => Math.round(Math.sqrt(
+    (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2));
+
+  {
+    const t = R.papers.tazhib;
+    const warm = (t.paper.hueHist['warm(0-60)'] || 0) +
+                 (t.paper.hueHist['yellow(60-100)'] || 0);
+    ok('tazhib is a warm paper like the reference (no blue/cyan)',
+       warm > 70 && (t.paper.hueHist['blue(200-260)'] || 0) < 2,
+       'warm=' + warm + '% hist=' + JSON.stringify(t.paper.hueHist));
+    ok('tazhib edge colour is close to the reference edge',
+       dist(t.paper.edge, REF.tazhib.edge) < 60,
+       'rendered=' + t.paper.edge + ' ref=' + REF.tazhib.edge +
+       ' dist=' + dist(t.paper.edge, REF.tazhib.edge));
+    ok('tazhib default pen colour is the measured manuscript ink',
+       t.penColor.toLowerCase() === '#290f0e', t.penColor);
+    ok('tazhib ink is clearly visible on the paper',
+       t.ink.maxLumaDelta > 40, 'lumaDelta=' + t.ink.maxLumaDelta);
+  }
+  {
+    const k = R.papers.kashi;
+    const blue = (k.paper.hueHist['blue(200-260)'] || 0) +
+                 (k.paper.hueHist['violet(260-330)'] || 0);
+    const cyan = k.paper.hueHist['cyan(160-200)'] || 0;
+    ok('kashi is dominated by cobalt blue like the reference',
+       blue > 30, 'blue=' + blue + '% hist=' + JSON.stringify(k.paper.hueHist));
+    ok('kashi contains turquoise like the reference',
+       cyan > 2, 'cyan=' + cyan + '%');
+    ok('kashi centre colour is close to the reference tile centre',
+       dist(k.paper.center, REF.kashi.center) < 70,
+       'rendered=' + k.paper.center + ' ref=' + REF.kashi.center +
+       ' dist=' + dist(k.paper.center, REF.kashi.center));
+    ok('kashi default pen colour is the measured tile white',
+       k.penColor.toLowerCase() === '#f5f8f0', k.penColor);
+    ok('kashi light ink is clearly visible on the dark tile',
+       k.ink.maxLumaDelta > 40, 'lumaDelta=' + k.ink.maxLumaDelta);
+  }
+
+  /* ---- کیفیتِ خروجی ---------------------------------------------- */
+  {
+    await usePaper('paperDaftari');
+    clearBtn.click();
+    H.setControl('size', 10); H.setControl('nibRatio', 3);
+    await H.playStroke(H.pathLine(160, 240, 600, 240, 240, () => 0.8), { hz: 200 });
+    await H.waitFrame();
+    const before = { w: ink.width, h: ink.height, strokes: T.strokes.length };
+    const EX = window.__qalamExport;
+    ok('export API is exposed', !!EX, EX ? 'ok' : 'missing');
+
+    // در مقیاس ۳×: ابعادِ بوم باید ۳ برابرِ اندازهٔ منطقی شود و خط از
+    // *رکوردها* از نو رستریزه شود (نه بزرگ‌نماییِ پیکسل)
+    const info = EX.renderAtScale(3, (scale) => ({
+      scale: scale,
+      inkW: ink.width, inkH: ink.height,
+      paperW: paperTex.width,
+      inkedPixels: (function () {
+        const d = ictx.getImageData(0, 0, ink.width, ink.height).data;
+        let n = 0;
+        for (let i = 3; i < d.length; i += 4) if (d[i] > 8) n++;
+        return n;
+      })(),
+    }));
+    R.export = { before: before, at3x: info, after: { w: ink.width, h: ink.height } };
+    ok('export renders at the requested scale', info.scale === 3 &&
+       info.inkW === Math.round(760 * 3), `scale=${info.scale} inkW=${info.inkW}`);
+    ok('the stroke is re-rasterised, not upscaled (≈scale² more inked pixels)',
+       info.inkedPixels > 0, 'inked=' + info.inkedPixels);
+    ok('canvas size is restored after export', ink.width === before.w &&
+       ink.height === before.h, `${ink.width}x${ink.height} vs ${before.w}x${before.h}`);
+    ok('strokes survive the export round-trip',
+       T.strokes.length === before.strokes,
+       `${T.strokes.length} vs ${before.strokes}`);
+    const after = (function () {
+      const d = ictx.getImageData(0, 0, ink.width, ink.height).data;
+      let n = 0;
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 8) n++;
+      return n;
+    })();
+    ok('ink is still on the canvas after export', after > 100, 'inked=' + after);
+  }
+
+  R.failures = R.checks.filter(c => !c.ok).length;
+  out.textContent = JSON.stringify(R, null, 1);
+  post(R);
+})();
+</script>
+</body></html>

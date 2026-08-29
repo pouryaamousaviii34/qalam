@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head><meta charset="UTF-8"><title>probe smoke</title></head>
+<body>
+<pre id="out">…</pre>
+<script>
+/* بارگذاریِ labs/stylus-probe.html در یک iframe و گزارشِ خطاهای آن.
+   ابزارِ ثبتِ سخت‌افزار بدونِ قلم قابلِ آزمونِ کامل نیست، ولی «بی‌خطا
+   بالا می‌آید و جدول‌هایش پر می‌شود» را می‌شود سنجید. */
+(function () {
+  const R = { errors: [] };
+  const post = o => { try { fetch('/__result', { method: 'POST', body: JSON.stringify(o) }); } catch (e) {} };
+  const fr = document.createElement('iframe');
+  fr.style.cssText = 'width:900px;height:700px;border:0';
+  fr.src = '../labs/stylus-probe.html';
+  fr.onload = function () {
+    const w = fr.contentWindow, d = fr.contentDocument;
+    w.onerror = (m, s, l) => R.errors.push(String(m) + ' @' + l);
+    setTimeout(function () {
+      const id = x => d.getElementById(x);
+      const txt = x => (id(x) ? (id(x).textContent || '').trim() : 'MISSING');
+      R.hasApiTable = /قابلیت/.test(txt('api'));
+      R.hasObserved = txt('observed').length > 10;
+      R.hasLadder = /Test 1/.test(txt('ladder'));
+      R.ladderHasContactColumn = /پهنای تماس/.test(txt('ladder'));
+      R.engineLoaded = !!w.QalamEngine;
+      R.stylusLoaded = !!w.QalamStylus;
+      R.jsonLen = (id('json') ? id('json').value.length : 0);
+      let j = null;
+      try { j = JSON.parse(id('json').value); } catch (e) { R.jsonError = String(e); }
+      if (j) {
+        R.jsonKeys = Object.keys(j);
+        R.jsonEngineLoaded = j.engineLoaded;
+        R.jsonLadderFields = j.pressureLadder && j.pressureLadder[0]
+          ? Object.keys(j.pressureLadder[0]) : null;
+      }
+      R.ok = R.errors.length === 0 && R.hasApiTable && R.hasLadder &&
+             R.ladderHasContactColumn && R.stylusLoaded && R.engineLoaded && !!j;
+      document.getElementById('out').textContent = JSON.stringify(R, null, 1);
+      post(R);
+    }, 1200);
+  };
+  document.body.appendChild(fr);
+})();
+</script>
+</body></html>

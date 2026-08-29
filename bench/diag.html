@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>diag</title></head><body>
+<pre id="out">RUNNING</pre>
+<script src="harness.js"></script>
+<script>
+/* diag.html — تشخیصِ دقیقِ «چند بار هر نمونه پردازش می‌شود» */
+window.__benchResult = (async function () {
+  const H = window.QalamHarness;
+  H.instrument(); H.instrumentRaf();
+  H.buildDOM(900, 600);
+
+  // شمارنده‌ی رویداد در فاز capture (قبل از هندلرهای app.js)
+  const evCount = { pointerrawupdate: 0, pointermove: 0, coalesced: 0, pointerdown: 0 };
+  for (const t of ['pointerrawupdate', 'pointermove', 'pointerdown']) {
+    document.getElementById('paper').addEventListener(t, e => {
+      evCount[t]++;
+      if (t === 'pointermove' || t === 'pointerrawupdate') {
+        try { evCount.coalesced += e.getCoalescedEvents().length; } catch (_) {}
+      }
+    }, true);
+  }
+
+  await new Promise(r => setTimeout(r, 60));
+  await H.loadEngine(new URLSearchParams(location.search).get('engine') || 'baseline-app.js');
+  await new Promise(r => setTimeout(r, 120));
+
+  // شمارنده‌ی مستقیمِ فراخوانیِ fill روی canvasِ مرکب (#ink)
+  const inkCanvas = document.getElementById('ink');
+  const inkCtxCalls = { fill: 0, stroke: 0 };
+  const origFill = CanvasRenderingContext2D.prototype.fill;
+  const origStroke = CanvasRenderingContext2D.prototype.stroke;
+  CanvasRenderingContext2D.prototype.fill = function () {
+    if (this.canvas === inkCanvas) inkCtxCalls.fill++;
+    return origFill.apply(this, arguments);
+  };
+  CanvasRenderingContext2D.prototype.stroke = function () {
+    if (this.canvas === inkCanvas) inkCtxCalls.stroke++;
+    return origStroke.apply(this, arguments);
+  };
+
+  async function run(rawUpdate) {
+    document.getElementById('clear').click();
+    H.setControl('size', 4);
+    for (const k in evCount) evCount[k] = 0;
+    inkCtxCalls.fill = 0; inkCtxCalls.stroke = 0;
+    H.resetBusy();
+    const path = H.pathLine(150, 150, 750, 450, 300, u => 0.35 + 0.5 * u);
+    await H.playStroke(path, { hz: 200, pointerType: 'pen', rawUpdate });
+    return {
+      rawUpdate,
+      dispatchedSamples: 300,
+      events: JSON.parse(JSON.stringify(evCount)),
+      // «نمونه‌های تحویل‌شده به صفحه» = rawupdateها + محتوای coalesced
+      deliveredSamples: evCount.pointerrawupdate + evCount.coalesced,
+      inkFill: inkCtxCalls.fill,
+      inkStroke: inkCtxCalls.stroke,
+      inkOps: inkCtxCalls.fill + inkCtxCalls.stroke,
+      busyMs: +(H.dispatchBusyMs + H.rafBusyMs).toFixed(2),
+    };
+  }
+
+  const a = await run(true);
+  const b = await run(false);
+  const summary = {
+    withRawUpdate: a, withoutRawUpdate: b,
+    inkOpsRatio: +(a.inkOps / b.inkOps).toFixed(3),
+    busyRatio: +(a.busyMs / b.busyMs).toFixed(3),
+    deliveredRatio: +(a.deliveredSamples / b.deliveredSamples).toFixed(3),
+  };
+  document.getElementById('out').textContent = JSON.stringify(summary, null, 1);
+  return summary;
+})();
+</script></body></html>

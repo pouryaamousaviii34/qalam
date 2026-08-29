@@ -1,0 +1,46 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><pre id=o>x</pre>
+<script src="harness.js"></script>
+<script>
+/* diag3 — رفتارِ ۵ رویدادِ نخستِ هر استروک (مسئلهٔ ۱) */
+window.__d3 = (async function () {
+  const H = window.QalamHarness;
+  H.instrument(); H.instrumentRaf(); H.buildDOM(900, 600);
+  await new Promise(r => setTimeout(r, 60));
+  await H.loadEngine('../stylus.js');
+  await H.loadEngine('../qalam-engine.js');
+  await H.loadEngine('../app.js');
+  await new Promise(r => setTimeout(r, 150));
+  const T = window.__qalamTest;
+  const out = {};
+
+  // نمونهٔ رکوردهای واقعیِ استروک برای فشارهای مختلفِ ثابت
+  for (const P of [0.1, 0.15, 0.5, 1.0]) {
+    document.getElementById('clear').click();
+    H.setControl('size', 12); H.setControl('nibRatio', 3);
+    H.setControl('angle', 90); H.setControl('smooth', 0);
+    await H.waitFrame();
+    const path = H.pathLine(150, 300, 700, 300, 200, () => P);
+    await H.playStroke(path, { hz: 200, pointerType: 'pen' });
+    const s = T.strokes[T.strokes.length - 1];
+    out['p=' + P] = {
+      nibWidth: +T.cfg.nibWidth.toFixed(2),
+      first5: s.slice(0, 5).map(r => ({
+        cw: +r.cw.toFixed(2), ct: +r.ct.toFixed(2),
+        uh: +r.uh.toFixed(3), ut: +r.ut.toFixed(3),
+        ap: +r.ap.toFixed(2), ink: +r.inkAmt.toFixed(3),
+        dens: +r.dens.toFixed(3),
+      })),
+      mid: (m => ({ cw: +m.cw.toFixed(2), ap: +m.ap.toFixed(2),
+                    dens: +m.dens.toFixed(3) }))(s[Math.floor(s.length / 2)]),
+      // بیشترین پهنای رندرشده در ۳۰px نخستِ مسیر در برابر میانهٔ مسیر
+      count: s.length,
+    };
+  }
+
+  // آیا Ink API presenter فعال است؟ (فقط Chromium)
+  out.inkApi = !!(navigator.ink && typeof navigator.ink.requestPresenter === 'function');
+  out.capabilities = T.capabilities().api;
+  document.getElementById('o').textContent = JSON.stringify(out, null, 1);
+  return out;
+})();
+</script></body></html>

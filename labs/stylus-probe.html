@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سنجشگر قلم نوری — Stylus Probe</title>
+<style>
+ *{box-sizing:border-box}
+ body{margin:0;font:13px/1.7 Tahoma,sans-serif;background:#f4efe4;color:#29251f}
+ header{background:#332d26;color:#f7f1e5;padding:10px 16px;display:flex;
+   justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+ header h1{margin:0;font-size:17px}
+ header a{color:#e0cfa8}
+ main{display:flex;flex-wrap:wrap;gap:14px;padding:14px}
+ .card{background:#fffdf7;border:1px solid #d3c8b5;border-radius:9px;padding:12px;
+   flex:1 1 320px;min-width:300px}
+ .card h2{margin:0 0 8px;font-size:14px;color:#6b4e32;
+   border-bottom:1px solid #e6ddcb;padding-bottom:4px}
+ #pad{flex:1 1 100%;height:280px;background:#fffdf7;border:2px dashed #b9a887;
+   border-radius:9px;touch-action:none;display:flex;align-items:center;
+   justify-content:center;color:#9b8a6d;font-size:15px;position:relative;
+   overflow:hidden;user-select:none}
+ #pad canvas{position:absolute;inset:0;width:100%;height:100%}
+ #pad .lbl{position:relative;z-index:2;pointer-events:none}
+ table{border-collapse:collapse;width:100%;font:11px Consolas,monospace;direction:ltr}
+ th,td{border:1px solid #e0d6c4;padding:2px 5px;text-align:left}
+ th{background:#f0e9da;color:#6b4e32}
+ .row{display:flex;justify-content:space-between;gap:8px}
+ .row b{font:11px Consolas,monospace;direction:ltr}
+ .yes{color:#2e7d4f;font-weight:bold}
+ .no{color:#b3271f;font-weight:bold}
+ .unk{color:#96803f;font-weight:bold}
+ button{border:1px solid #c9beab;background:#fffdf8;border-radius:7px;
+   padding:6px 10px;cursor:pointer;font-size:12px}
+ button:hover{background:#eee7da}
+ textarea{width:100%;height:150px;font:10px Consolas,monospace;direction:ltr}
+ .hint{font-size:11px;color:#7a6a52}
+</style>
+</head>
+<body>
+<header>
+  <h1>سنجشگر قلم نوری — داده‌های خامِ مرورگر</h1>
+  <div>
+    <a href="index.html">آزمایشگاه</a> ·
+    <a href="../index.html">بازگشت به برنامه</a>
+  </div>
+</header>
+
+<main>
+  <div id="pad">
+    <canvas id="trace"></canvas>
+    <span class="lbl">با قلم نوری روی این ناحیه بکشید — فشار کم، متوسط، زیاد؛ قلم را کج کنید و بچرخانید</span>
+  </div>
+
+  <div class="card">
+    <h2>۱) قابلیت‌های API مرورگر (feature detection)</h2>
+    <div id="api"></div>
+    <p class="hint">این جدول فقط می‌گوید مرورگر چه چیزی <em>دارد</em>؛ اینکه
+    سخت‌افزار/درایور واقعاً داده می‌دهد یا نه در بخش ۲ مشخص می‌شود.</p>
+  </div>
+
+  <div class="card">
+    <h2>۲) آنچه واقعاً از سخت‌افزار دیده شد</h2>
+    <div id="observed"></div>
+    <p class="hint">
+      طبق W3C Pointer Events L3، دستگاهِ بدونِ حسِ فشار «باید» در حالتِ تماس
+      دقیقاً <code>0.5</code> بدهد. پس مشاهدهٔ هر مقدارِ فشارِ غیر از
+      <code>0</code> و <code>0.5</code> اثباتِ وجودِ حسگرِ فشار است — حتی اگر
+      <code>pointerType</code> اشتباهاً <code>mouse</code> باشد.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>۳) مقادیر زندهٔ آخرین رویداد</h2>
+    <div id="live"></div>
+  </div>
+
+  <div class="card">
+    <h2>۴) دنبالهٔ رویداد: down / move #1 / #2 / #10 / #100</h2>
+    <div id="seq"></div>
+    <p class="hint">اگر زاویه فقط در رویدادهای نخست معتبر است و بعد صفر می‌شود،
+    این جدول دقیقاً نشان می‌دهد در کدام رویداد از دست می‌رود.</p>
+  </div>
+
+  <div class="card">
+    <h2>۵) pointermove در برابر pointerrawupdate</h2>
+    <div id="cmp"></div>
+    <p class="hint">اگر هر دو داده‌ی یکسانی بدهند، گوش‌دادن به هر دو یعنی
+    پردازشِ دوباره. طبق §4.2.5 استاندارد، اجتماعِ coalesced eventهای
+    rawupdateها با coalesced eventهای pointermove بعدی یکسان است.</p>
+  </div>
+
+  <div class="card">
+    <h2>۶) نردبانِ فشار — پروتکل تست Firefox / Chrome</h2>
+    <p class="hint">با قلمِ واقعی پنج آزمون را انجام دهید. هر باند وقتی
+    <b>سبز</b> می‌شود که حداقل ۲۰ نمونه در آن بازه ثبت شده باشد. برای هر
+    باند میانگینِ <code>raw → normalized → calibrated</code> نگه داشته
+    می‌شود، تا معلوم شود تغییرِ فشار در کدام مرحله گم می‌شود.</p>
+    <div id="ladder"></div>
+    <button id="ladderReset">شروع دوباره نردبان</button>
+  </div>
+
+  <div class="card">
+    <h2>۷) خروجی</h2>
+    <button id="clearBtn">پاک کردن</button>
+    <button id="copyBtn">کپی JSON</button>
+    <button id="dlBtn">دانلود JSON</button>
+    <p class="hint">این JSON را برای تشخیص دقیقِ رفتارِ مرورگر/دستگاهتان بفرستید.</p>
+    <textarea id="json" readonly></textarea>
+  </div>
+</main>
+
+<script src="../stylus.js"></script>
+<!-- موتور *اختیاری* است: اگر بارگذاری نشود، این صفحه باز هم کار می‌کند و
+     می‌شود فهمید مشکل از ورودی است یا از رندر. با بارگذاری‌اش، ستونِ
+     «پهنای تماس» هم پر می‌شود و آن‌وقت می‌توان پاسخ داد که آیا فشار به
+     *هندسه* می‌رسد یا فقط در اعداد درست است. -->
+<script src="../qalam-engine.js"></script>
+<script>
+/* =====================================================================
+   stylus-probe — ابزارِ تشخیصِ سخت‌افزار/مرورگر
+   ---------------------------------------------------------------------
+   هیچ وابستگی‌ای به موتورِ قلم ندارد؛ فقط PointerEvent خام + لایه‌ی
+   نرمال‌سازی. پس اگر موتور در مرورگری خطا بدهد، این صفحه باز هم کار
+   می‌کند و می‌شود فهمید مشکل از ورودی است یا از رندر.
+   ===================================================================== */
+(function () {
+  'use strict';
+  const QS = window.QalamStylus;
+  const pad = document.getElementById('pad');
+  const cv = document.getElementById('trace');
+  const cx = cv.getContext('2d');
+  const $ = id => document.getElementById(id);
+
+  const norm = new QS.StylusNormalizer();
+  const api = norm.api;
+
+  /* ---- موتور (اختیاری): فشار ⟶ پهنای سطحِ تماس -------------------
+     پرسشِ کلیدیِ عیب‌یابیِ Firefox این است: «اگر event.pressure درست است
+     ولی خط تغییر نمی‌کند، مشکل موتور است؛ اگر event.pressure ثابت است،
+     مشکل ورودی/درایور/مرورگر است.» برای اینکه بشود بین این دو تفکیک کرد،
+     همین‌جا فشارِ کالیبره‌شده را به هندسهٔ واقعیِ موتور می‌دهیم. */
+  const QE = window.QalamEngine || null;
+  const NIB_W = 20;                      // پهنای مرجعِ نوک برای گزارش (px)
+  const geoCfg = QE ? QE.createConfig({ nibWidth: NIB_W, nibThickness: 1,
+                                        nibAngle: 90 }) : null;
+  const geoState = QE ? new QE.ContactState() : null;
+  function contactWidthOf(mapped) {
+    if (!QE) return null;
+    QE.computeContact(geoState, geoCfg, mapped, geoCfg.velocityRef, 0, null, 0);
+    return geoState.width;
+  }
+
+  /* ---- جدولِ قابلیت API ---------------------------------------- */
+  const flag = v => v ? '<span class="yes">دارد</span>' : '<span class="no">ندارد</span>';
+  $('api').innerHTML = '<table><tr><th>قابلیت</th><th>وضعیت</th></tr>' + [
+    ['PointerEvent', flag(api.pointerEvent)],
+    ['secure context', flag(api.secureContext)],
+    ['pressure', flag(api.pressure)],
+    ['tangentialPressure', flag(api.tangentialPressure)],
+    ['tiltX / tiltY', flag(api.tiltX && api.tiltY)],
+    ['twist', flag(api.twist)],
+    ['altitudeAngle', flag(api.altitudeAngle)],
+    ['azimuthAngle', flag(api.azimuthAngle)],
+    ['getCoalescedEvents', flag(api.getCoalescedEvents)],
+    ['getPredictedEvents', flag(api.getPredictedEvents)],
+    ['pointerrawupdate', flag(api.pointerrawupdate)],
+    ['tilt→spherical تبدیل می‌کند', flag(api.convertsTiltToSpherical)],
+    ['spherical→tilt تبدیل می‌کند', flag(api.convertsSphericalToTilt)],
+    ['navigator.ink', flag(api.inkPresenter)],
+    ['maxTouchPoints', '<b>' + api.maxTouchPoints + '</b>'],
+    ['userAgent', '<b style="font-size:9px">' + navigator.userAgent + '</b>'],
+  ].map(r => '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td></tr>').join('') + '</table>';
+
+  /* ---- وضعیت ---------------------------------------------------- */
+  const seq = [];
+  const marks = [1, 2, 3, 10, 100];
+  const cmp = { pointermove: null, pointerrawupdate: null, coalescedCounts: [] };
+  let moveCount = 0, active = false, activeId = -1;
+  let lastPt = null;
+  const pressureLog = [];
+
+  function resizeCanvas() {
+    const r = pad.getBoundingClientRect();
+    const d = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = Math.round(r.width * d);
+    cv.height = Math.round(r.height * d);
+    cx.setTransform(d, 0, 0, d, 0, 0);
+  }
+  resizeCanvas();
+  new ResizeObserver(resizeCanvas).observe(pad);
+
+  const supTxt = v => v === QS.SUPPORT.SUPPORTED
+    ? '<span class="yes">پشتیبانی می‌شود</span>'
+    : (v === QS.SUPPORT.UNSUPPORTED
+        ? '<span class="no">پشتیبانی نمی‌شود</span>'
+        : '<span class="unk">نامعلوم</span>');
+
+  function renderObserved() {
+    const rep = norm.capabilityReport();
+    const o = rep.observed;
+    const pr = rep.observedPressureRange;
+    $('observed').innerHTML = '<table><tr><th>مورد</th><th>نتیجه</th></tr>' + [
+      ['pointerType', '<b>' + (rep.pointerType || '—') + '</b>'],
+      ['فشار', supTxt(rep.pressure)],
+      ['شیب (tilt)', supTxt(rep.tilt)],
+      ['جهت‌گیری', supTxt(rep.orientation)],
+      ['چرخش بدنه (twist)', supTxt(rep.twist)],
+      ['فشار مماسی', supTxt(rep.tangential)],
+      ['نمونه‌های فشار در تماس', '<b>' + o.pressureSamples + '</b>'],
+      ['از آن‌ها = دقیقاً 0.5', '<b>' + o.pressureExactHalf + '</b>'],
+      ['از آن‌ها = 0 با تماس', '<b>' + o.pressureZeroWithButton + '</b>'],
+      ['از آن‌ها ≠ {0, 0.5}', '<b>' + o.pressureNonDefault + '</b>'],
+      ['بازهٔ فشارِ مشاهده‌شده',
+        '<b>' + (pr.min == null ? '—' : pr.min.toFixed(3)) + ' … ' +
+        (pr.max == null ? '—' : pr.max.toFixed(3)) + '</b>'],
+      ['نمونه با tilt غیرصفر', '<b>' + o.tiltNonZero + ' / ' + o.tiltSamples + '</b>'],
+      ['نمونه با جهت‌گیری معتبر',
+        '<b>' + o.orientationValid + ' / ' + o.orientationSamples + '</b>'],
+      ['twist غیرصفر', '<b>' + o.twistNonZero + '</b>'],
+      ['pointerrawupdate دریافت‌شده', '<b>' + o.rawUpdateSeen + '</b>'],
+      ['pointermove دریافت‌شده', '<b>' + o.moveSeen + '</b>'],
+      ['coalesced دیده‌شده', '<b>' + o.coalescedSeen + '</b>'],
+    ].map(r => '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td></tr>').join('') + '</table>';
+  }
+
+  function renderLive(st, ev) {
+    const f = (v, d) => (typeof v === 'number' ? v.toFixed(d == null ? 3 : d) : '—');
+    $('live').innerHTML = '<table><tr><th>مورد</th><th>خام</th><th>نرمال‌شده</th></tr>' + [
+      ['pressure', f(ev.pressure), f(st.pressure)],
+      ['tiltX', api.tiltX ? String(ev.tiltX) : '—', f(st.tiltX, 1)],
+      ['tiltY', api.tiltY ? String(ev.tiltY) : '—', f(st.tiltY, 1)],
+      ['altitudeAngle',
+        api.altitudeAngle ? f(ev.altitudeAngle) : '—',
+        f(st.altitude * QS.RAD2DEG, 1) + '°'],
+      ['azimuthAngle',
+        api.azimuthAngle ? f(ev.azimuthAngle) : '—',
+        f(st.azimuth * QS.RAD2DEG, 1) + '°'],
+      ['twist', api.twist ? String(ev.twist) : '—', String(st.twist)],
+      ['tangentialPressure', api.tangentialPressure ? f(ev.tangentialPressure) : '—',
+        f(st.tangentialPressure)],
+      ['lean (خوابیدن)', '—', f(st.lean)],
+      ['leanDir', '—', f(st.leanDir * QS.RAD2DEG, 1) + '°'],
+      ['penVector', '—',
+        f(st.vx, 2) + ', ' + f(st.vy, 2) + ', ' + f(st.vz, 2)],
+      ['حالت جهت‌گیری', '—', '<b>' + st.orientationState + '</b>'],
+      ['فشار جانشین؟', '—', st.pressureIsFallback ? 'بله' : 'خیر'],
+      /* سه ردیفِ زیر مستقیماً به پرسشِ «۰٫۵ فشارِ واقعی است یا مقدارِ
+         پیش‌فرضِ استاندارد؟» پاسخ می‌دهند. طبق [PE3] §4.1 سخت‌افزارِ
+         بی‌حسِ فشار در حالتِ تماس *باید* دقیقاً ۰٫۵ بدهد، پس تا وقتی
+         مقداری غیر از {0, 0.5} دیده نشده، ۰٫۵ شاهدِ فشارِ واقعی نیست و
+         نباید فیلترِ فشار را مقدار‌دهیِ اولیه کند. */
+      ['اعتبارِ این نمونه', '—', '<b>' + (st.pressureTrust || '—') + '</b>'],
+      ['برای مقدار‌دهیِ اولیه قابلِ اعتماد؟', '—',
+        st.pressureTrusted ? '<span class="yes">بله</span>'
+                           : '<span class="no">خیر</span>'],
+      ['فیلترِ فشار در پنجرهٔ آماده‌سازی؟', '—',
+        st.pressurePriming ? 'بله' : 'خیر'],
+      ['پهنای سطحِ تماس (نوکِ ' + NIB_W + 'px)', '—',
+        QE ? f(contactWidthOf(st.pressure), 2) + ' px' : 'موتور بارگذاری نشد'],
+      ['منشأ رویداد', '—', st.source],
+      ['buttons', String(ev.buttons), '—'],
+    ].map(r => '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td></tr>')
+      .join('') + '</table>';
+  }
+
+  function renderSeq() {
+    if (!seq.length) { $('seq').innerHTML = '<p class="hint">هنوز چیزی نکشیده‌اید.</p>'; return; }
+    $('seq').innerHTML = '<table><tr><th>مرحله</th><th>pressure</th><th>tiltX</th>' +
+      '<th>tiltY</th><th>alt°</th><th>az°</th><th>twist</th><th>state</th></tr>' +
+      seq.map(r => '<tr><td>' + r.at + '</td><td>' + r.pressure.toFixed(3) +
+        '</td><td>' + r.tiltX + '</td><td>' + r.tiltY +
+        '</td><td>' + (r.altitude * QS.RAD2DEG).toFixed(1) +
+        '</td><td>' + (r.azimuth * QS.RAD2DEG).toFixed(1) +
+        '</td><td>' + r.twist + '</td><td>' + r.state + '</td></tr>').join('') + '</table>';
+  }
+
+  function renderCmp() {
+    const rows = [];
+    for (const k of ['pointermove', 'pointerrawupdate']) {
+      const v = cmp[k];
+      rows.push('<tr><td>' + k + '</td><td>' +
+        (v ? v.count : 0) + '</td><td>' +
+        (v ? v.pressure.toFixed(3) : '—') + '</td><td>' +
+        (v ? v.tiltX + '/' + v.tiltY : '—') + '</td><td>' +
+        (v ? v.coalesced : '—') + '</td></tr>');
+    }
+    $('cmp').innerHTML = '<table><tr><th>رویداد</th><th>تعداد</th>' +
+      '<th>آخرین pressure</th><th>tiltX/Y</th><th>coalesced</th></tr>' +
+      rows.join('') + '</table>' +
+      '<p class="hint">منبعِ ورودیِ برنامهٔ اصلی: ' +
+      (cmp.pointerrawupdate ? '<b>pointerrawupdate</b>' : '<b>pointermove</b>') +
+      ' — دیگری برای رسم نادیده گرفته می‌شود.</p>';
+  }
+
+  /* ---- نردبانِ پنج‌بانده (Test 1..5) ------------------------------
+     باندها روی *فشارِ خام* تعریف می‌شوند تا اگر normalization/calibration
+     مشکل داشته باشد، همان‌جا دیده شود. */
+  const LADDER = [
+    { id: 1, label: 'Test 1 — very light', lo: 0.001, hi: 0.15 },
+    { id: 2, label: 'Test 2 — ~25%', lo: 0.15, hi: 0.35 },
+    { id: 3, label: 'Test 3 — ~50%', lo: 0.35, hi: 0.60 },
+    { id: 4, label: 'Test 4 — ~75%', lo: 0.60, hi: 0.85 },
+    { id: 5, label: 'Test 5 — maximum', lo: 0.85, hi: 1.001 },
+  ].map(b => Object.assign(b, { n: 0, sRaw: 0, sNorm: 0, sCal: 0, sCw: 0,
+                                minRaw: 1e9, maxRaw: -1e9 }));
+  const NEED = 20;
+
+  function ladderPush(st) {
+    if (!(st.pressureRaw > 0)) return;
+    for (const b of LADDER) {
+      if (st.pressureRaw >= b.lo && st.pressureRaw < b.hi) {
+        b.n++; b.sRaw += st.pressureRaw;
+        b.sNorm += norm.calibration.normalized;
+        b.sCal += st.pressure;
+        // «فشار به هندسه می‌رسد؟» — همین ستون جواب می‌دهد
+        const cw = contactWidthOf(st.pressure);
+        if (cw !== null) b.sCw += cw;
+        if (st.pressureRaw < b.minRaw) b.minRaw = st.pressureRaw;
+        if (st.pressureRaw > b.maxRaw) b.maxRaw = st.pressureRaw;
+        break;
+      }
+    }
+  }
+  function renderLadder() {
+    const f = (v, n2) => (n2 ? (v / n2).toFixed(4) : '—');
+    $('ladder').innerHTML = '<table><tr><th>آزمون</th><th>نمونه</th>' +
+      '<th>raw میانگین</th><th>normalized</th><th>calibrated</th>' +
+      '<th>پهنای تماس (نوکِ ' + NIB_W + 'px)</th>' +
+      '<th>بازهٔ raw</th><th>وضعیت</th></tr>' +
+      LADDER.map(b => '<tr><td>' + b.label + '</td><td>' + b.n + ' / ' + NEED +
+        '</td><td>' + f(b.sRaw, b.n) + '</td><td>' + f(b.sNorm, b.n) +
+        '</td><td>' + f(b.sCal, b.n) + '</td><td>' +
+        (QE ? (b.n ? (b.sCw / b.n).toFixed(2) + ' px' : '—') : 'موتور نیست') +
+        '</td><td>' +
+        (b.n ? b.minRaw.toFixed(3) + '…' + b.maxRaw.toFixed(3) : '—') +
+        '</td><td>' + (b.n >= NEED ? '<span class="yes">کامل</span>'
+          : '<span class="unk">ناکامل</span>') + '</td></tr>').join('') +
+      '</table>' + (function () {
+        const done = LADDER.filter(b => b.n >= NEED).length;
+        if (done < 5) return '<p class="hint">' + done + ' از ۵ باند کامل شده.</p>';
+        // آیا فشار واقعاً در هر مرحله تغییر می‌کند؟
+        const raws = LADDER.map(b => b.sRaw / b.n);
+        const cals = LADDER.map(b => b.sCal / b.n);
+        const cws = LADDER.map(b => b.sCw / b.n);
+        const monoRaw = raws.every((v, i) => i === 0 || v > raws[i-1]);
+        const monoCal = cals.every((v, i) => i === 0 || v > cals[i-1]);
+        const monoCw = !QE || cws.every((v, i) => i === 0 || v > cws[i-1]);
+        return '<p class="hint"><b>نتیجه:</b> raw ' +
+          (monoRaw ? '<span class="yes">یکنوا صعودی است</span>'
+                   : '<span class="no">یکنوا نیست — ورودی/درایور مشکل دارد</span>') +
+          ' · calibrated ' +
+          (monoCal ? '<span class="yes">یکنوا صعودی است</span>'
+                   : '<span class="no">یکنوا نیست — خطِ لولهٔ فشار مشکل دارد</span>') +
+          ' · هندسه ' +
+          (monoCw ? '<span class="yes">یکنوا صعودی است</span>'
+                  : '<span class="no">یکنوا نیست — موتورِ قلم مشکل دارد</span>') +
+          '</p><p class="hint">تفکیکِ عیب: اگر raw ثابت/غیریکنواست ⇒ ورودی، ' +
+          'درایور یا مرورگر. اگر raw درست است ولی هندسه نه ⇒ موتورِ قلم. ' +
+          'اگر هر سه درست‌اند ولی روی کاغذ چیزی عوض نمی‌شود ⇒ رندرر.</p>';
+      })();
+  }
+
+  function dumpJson() {
+    const rep = norm.capabilityReport();
+    $('json').value = JSON.stringify({
+      userAgent: navigator.userAgent,
+      api: api,
+      capability: {
+        pressure: rep.pressure, tilt: rep.tilt, orientation: rep.orientation,
+        twist: rep.twist, tangential: rep.tangential,
+      },
+      observed: rep.observed,
+      observedPressureRange: rep.observedPressureRange,
+      pointerType: rep.pointerType,
+      sequence: seq,
+      compare: cmp,
+      engineLoaded: !!QE,
+      referenceNibWidthPx: NIB_W,
+      pressureLadder: LADDER.map(b => ({
+        id: b.id, label: b.label, range: [b.lo, b.hi], samples: b.n,
+        meanRaw: b.n ? +(b.sRaw / b.n).toFixed(4) : null,
+        meanNormalized: b.n ? +(b.sNorm / b.n).toFixed(4) : null,
+        meanCalibrated: b.n ? +(b.sCal / b.n).toFixed(4) : null,
+        meanContactWidthPx: (QE && b.n) ? +(b.sCw / b.n).toFixed(3) : null,
+        minRaw: b.n ? +b.minRaw.toFixed(4) : null,
+        maxRaw: b.n ? +b.maxRaw.toFixed(4) : null,
+      })),
+      pressureLog: pressureLog.slice(0, 400),
+    }, null, 1);
+  }
+
+  /* ---- گرفتنِ رویدادها ------------------------------------------ */
+  function record(ev, source) {
+    const r = pad.getBoundingClientRect();
+    const st = norm.normalize(ev, {
+      originX: r.left, originY: r.top, source: source,
+      fallbackPressure: 0.75,
+    });
+
+    if (source === 'pointermove') norm.obs.moveSeen++;
+    if (source === 'pointerrawupdate') norm.obs.rawUpdateSeen++;
+
+    let coalesced = 0;
+    if (typeof ev.getCoalescedEvents === 'function') {
+      try { coalesced = ev.getCoalescedEvents().length; } catch (_) {}
+    }
+    if (source === 'pointermove' || source === 'pointerrawupdate') {
+      cmp[source] = {
+        count: (cmp[source] ? cmp[source].count : 0) + 1,
+        pressure: ev.pressure, tiltX: ev.tiltX | 0, tiltY: ev.tiltY | 0,
+        coalesced: coalesced,
+      };
+    }
+
+    if (source !== 'pointerdown') moveCount++;
+    if (source === 'pointerdown' || marks.indexOf(moveCount) >= 0) {
+      seq.push({
+        at: source === 'pointerdown' ? 'pointerdown' : (source + ' #' + moveCount),
+        pressure: st.pressureRaw, tiltX: st.tiltX | 0, tiltY: st.tiltY | 0,
+        altitude: st.altitude, azimuth: st.azimuth, twist: st.twist,
+        state: st.orientationState,
+        trust: st.pressureTrust, trusted: !!st.pressureTrusted,
+        priming: !!st.pressurePriming,
+        contactWidthPx: QE ? +contactWidthOf(st.pressure).toFixed(3) : null,
+      });
+      if (seq.length > 40) seq.shift();
+    }
+    if (pressureLog.length < 4000) {
+      pressureLog.push({ t: Math.round(st.t), p: st.pressureRaw,
+                         tx: st.tiltX | 0, ty: st.tiltY | 0, s: source,
+                         tr: st.pressureTrust });
+    }
+
+    // ردِ بصری با پهنای متناسبِ فشار — تا فوراً ببینیم فشار اثر دارد یا نه
+    if (active && lastPt) {
+      cx.strokeStyle = st.pressureIsFallback ? '#b3271f' : '#2a1d10';
+      cx.lineCap = 'round';
+      cx.lineWidth = Math.max(0.5, st.pressure * 22);
+      cx.beginPath();
+      cx.moveTo(lastPt.x, lastPt.y);
+      cx.lineTo(st.x, st.y);
+      cx.stroke();
+    }
+    lastPt = { x: st.x, y: st.y };
+
+    if (active) ladderPush(st);
+    renderLive(st, ev);
+    renderLadder();
+    renderObserved();
+    renderSeq();
+    renderCmp();
+    dumpJson();
+  }
+
+  pad.addEventListener('pointerdown', ev => {
+    ev.preventDefault();
+    active = true; activeId = ev.pointerId; moveCount = 0;
+    lastPt = null; seq.length = 0;
+    norm.resetStroke();
+    try { pad.setPointerCapture(ev.pointerId); } catch (_) {}
+    record(ev, 'pointerdown');
+  });
+  pad.addEventListener('pointermove', ev => {
+    if (!active || ev.pointerId !== activeId) return;
+    record(ev, 'pointermove');
+  });
+  pad.addEventListener('pointerrawupdate', ev => {
+    if (!active || ev.pointerId !== activeId) return;
+    record(ev, 'pointerrawupdate');
+  });
+  pad.addEventListener('pointerup', ev => { active = false; lastPt = null; });
+  pad.addEventListener('pointercancel', () => { active = false; lastPt = null; });
+  pad.addEventListener('contextmenu', e => e.preventDefault());
+
+  $('clearBtn').onclick = () => {
+    cx.clearRect(0, 0, cv.width, cv.height);
+    seq.length = 0; pressureLog.length = 0;
+    cmp.pointermove = null; cmp.pointerrawupdate = null;
+    norm.calibration.clearObserved();
+    renderObserved(); renderSeq(); renderCmp(); dumpJson();
+  };
+  $('copyBtn').onclick = () => {
+    $('json').select();
+    try { document.execCommand('copy'); } catch (_) {}
+  };
+  $('dlBtn').onclick = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([$('json').value], { type: 'application/json' }));
+    a.download = 'stylus-probe.json';
+    a.click();
+  };
+
+  $('ladderReset').onclick = () => {
+    for (const b of LADDER) { b.n = 0; b.sRaw = b.sNorm = b.sCal = b.sCw = 0;
+                              b.minRaw = 1e9; b.maxRaw = -1e9; }
+    renderLadder(); dumpJson();
+  };
+  renderObserved(); renderSeq(); renderCmp(); renderLadder(); dumpJson();
+})();
+</script>
+</body>
+</html>

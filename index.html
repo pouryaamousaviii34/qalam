@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>قلم نی آنلاین نیستان — نستعلیق</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23f4e8cc'/><text x='16' y='24' font-size='22' text-anchor='middle'>&#9998;</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">
+      <div style="font-size:30px">✒</div>
+      <div>
+        <h1>قلم نی آنلاین نیستان</h1>
+        <small>نستعلیق — قلم نی ایرانی + فشار + زاویه + قلم نوری</small>
+      </div>
+    </div>
+    <div id="status" class="status">در انتظار قلم...</div>
+  </header>
+
+  <div class="toolbar">
+    <div class="group" id="sizeGroup">
+      <label>پهنای قلم</label>
+      <input id="size" type="range" min="1" max="40" value="4">
+      <span id="sizeVal" class="value">4</span>
+    </div>
+
+    <div class="group" id="nibRatioGroup">
+      <label>نسبت نوک (پهنا:ضخامت)</label>
+      <input id="nibRatio" type="range" min="2" max="6" step=".1" value="2.0">
+      <span id="nibRatioVal" class="value">2.0</span>
+    </div>
+
+    <div class="group" id="thickGroup">
+      <label>ضخامت تیغه</label>
+      <input id="nibThick" type="range" min="0.2" max="8" step=".05" value="1.0">
+      <span id="nibThickVal" class="value">1.00</span>
+    </div>
+
+    <div class="group">
+      <label>حساسیت فشار</label>
+      <input id="pressure" type="range" min="0.1" max="2" step=".05" value="1">
+      <span id="pressureVal" class="value">1.00</span>
+    </div>
+
+    <div class="group" id="opacityGroup">
+      <label>شفافیت مرکب</label>
+      <input id="opacity" type="range" min="10" max="100" value="100">
+      <span id="opacityVal" class="value">100%</span>
+    </div>
+
+    <div class="group" id="angleGroup">
+      <label>زاویه قلم</label>
+      <input id="angle" type="range" min="0" max="180" value="109">
+      <span id="angleVal" class="value">109°</span>
+    </div>
+
+    <div class="group">
+      <label>نرمی</label>
+      <input id="smooth" type="range" min="0" max="0.95" step=".05" value=".55">
+      <span id="smoothVal" class="value">.55</span>
+    </div>
+
+    <div class="group" id="nibGroup">
+      <label>نوک</label>
+      <select id="nib">
+        <option value="flat">قلم نی تخت</option>
+        <option value="sharp">نوک تیز</option>
+        <option value="round">گرد</option>
+      </select>
+    </div>
+
+    <div class="group" id="lightGroup">
+      <label>قلم نوری</label>
+      <button id="lightBtn">خاموش</button>
+    </div>
+
+    <div class="group">
+      <label>ابزار</label>
+      <button id="tool_reed" class="active" title="قلم نی خوشنویسی — نوکِ تخت">قلم نی</button>
+      <button id="tool_pencil" title="مداد — خطِ باریکِ دانه‌دار">مداد</button>
+      <button id="tool_brush" title="قلم‌مو — پهنا کاملاً تابعِ فشار، لبهٔ نرم">قلم‌مو</button>
+      <button id="tool_marker" title="ماژیک — پهنای تقریباً ثابت، مرکبِ پوشا">ماژیک</button>
+      <button id="tool_water" title="آبرنگ — کم‌رنگ، پخشِ زیاد، لایه روی لایه سیر می‌شود">آبرنگ</button>
+      <button id="tool_ballpoint" title="خودکار ساچمه‌ای — ردِ واقعیِ خودکار روی کاغذ: تماسِ ساچمه، جریانِ جوهر، تجمع و ریزنوسانِ طبیعی">خودکار</button>
+    </div>
+
+    <div class="group">
+      <label>کاغذ</label>
+      <button id="paperDaftari" class="active">دفتری</button>
+      <button id="paperGloss">گلاسه / روغنی</button>
+      <button id="paperTraditional">سنتی دست‌ساز</button>
+      <button id="paperTazhib">تذهیب</button>
+      <button id="paperKashi">کاشی‌کاری</button>
+      <input type="file" id="paperImage" accept="image/*" hidden>
+      <button id="paperImageBtn" title="یک عکس را پس‌زمینه کن — رنگ قلم از خودِ عکس درمی‌آید">عکس دلخواه…</button>
+      <button id="mirrorBtn" title="پنجرهٔ آینه: همین اثر روی زمینهٔ سفید، بدونِ عکسِ مرجع">آینه</button>
+      <label class="ctl" title="پس‌زمینه چقدر محو شود تا خط خوانا بمانَد">
+        محوِ پس‌زمینه
+        <input type="range" id="bgVeil" min="0" max="0.9" step="0.05" value="0.35">
+        <b id="bgVeilVal"></b>
+      </label>
+    </div>
+
+    <div class="group" id="returnGroup">
+      <label><input type="checkbox" id="autoReturn"> برش صاف انتهای حرف</label>
+    </div>
+
+    <div class="group" id="twistGroup">
+      <label>زاویه</label>
+      <button id="twistMode" class="active">ثابت</button>
+      <button id="motionMode">جهت حرکت</button>
+      <button id="dynamicMode">داینامیک</button>
+      <button id="vertBtn" class="active" title="نگه‌داشتن دکمه‌ی پایینی قلم، زاویه‌ی نوک را عمودی می‌کند">دکمهٔ قلم → عمودی</button>
+    </div>
+
+    <div class="group" id="colorGroup">
+      <label>رنگ مرکب</label>
+      <input id="color" type="color" value="#2a1d10">
+    </div>
+
+    <div class="group">
+      <button id="eraserBtn">پاک‌کن</button>
+      <button id="undo">↶ برگشت</button>
+      <button id="clear">پاک کردن</button>
+      <button id="save">ذخیره PNG</button>
+      <label class="ctl" title="کیفیتِ خروجی: خط از رکوردها در این مقیاس از نو رستریزه می‌شود، نه بزرگ‌نماییِ پیکسل">
+        کیفیت خروجی
+        <select id="exportScale">
+          <option value="1">۱× (اندازهٔ صفحه)</option>
+          <option value="2" selected>۲×</option>
+          <option value="3">۳×</option>
+          <option value="4">۴×</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="group" id="assistGroup">
+      <label>دستیارِ هوشمند</label>
+      <button id="assistBtn" title="پنلِ دستیارِ هوشمند خوشنویسی و خودکارِ واقعی (Alt+A)">پنل دستیار</button>
+    </div>
+
+    <div class="group" id="dbgGroup">
+      <label>ابزار سنجش</label>
+      <button id="dbgToggle">پنل کالیبراسیون</button>
+      <button id="gridBtn">شبکهٔ آزمون فشار</button>
+      <a class="labs" href="labs/index.html">آزمایشگاه تست‌ها ↗</a>
+    </div>
+  </div>
+
+  <!-- ==================================================================
+       پنل کالیبراسیون / اشکال‌زدایی (PHASE 20)
+       نمایشِ زنده‌ی زنجیره‌ی فشار → سطحِ تماس → مرکب و سنجه‌های اجرا
+       ================================================================== -->
+  <div id="dbg" class="dbg" hidden>
+    <div class="dbg-head">
+      <strong>پنل کالیبراسیون قلم نی</strong>
+      <button id="dbgClose">×</button>
+    </div>
+
+    <div class="dbg-cols">
+      <div class="dbg-col">
+        <h4>فشار</h4>
+        <div class="row"><span>خام</span><b id="d_praw">0.000</b></div>
+        <div class="bar"><i id="b_praw"></i></div>
+        <div class="row"><span>نرمال‌شده</span><b id="d_pnorm">0.000</b></div>
+        <div class="bar"><i id="b_pnorm"></i></div>
+        <div class="row"><span>فیلترشده</span><b id="d_pfilt">0.000</b></div>
+        <div class="bar"><i id="b_pfilt"></i></div>
+        <div class="row"><span>پس از منحنی</span><b id="d_pmap">0.000</b></div>
+        <div class="bar"><i id="b_pmap"></i></div>
+        <div class="row"><span>سخت‌افزار فشار دارد؟</span><b id="d_psup">—</b></div>
+        <canvas id="d_curve" width="150" height="90"></canvas>
+      </div>
+
+      <div class="dbg-col">
+        <h4>سطح تماس نوک</h4>
+        <div class="row"><span>پهنای تماس</span><b id="d_cw">0.00 px</b></div>
+        <div class="row"><span>ضخامت تماس</span><b id="d_ct">0.00 px</b></div>
+        <div class="row"><span>جابه‌جایی پاشنه</span><b id="d_co">0.00 px</b></div>
+        <div class="row"><span>پهنای دیده‌شده</span><b id="d_ap">0.00 px</b></div>
+        <div class="row"><span>زاویه نوک</span><b id="d_nib">0°</b></div>
+        <div class="row"><span>جهت حرکت</span><b id="d_dir">0°</b></div>
+        <div class="row"><span>tiltX / tiltY</span><b id="d_tilt">0 / 0</b></div>
+        <canvas id="d_nibview" width="150" height="90"></canvas>
+      </div>
+
+      <div class="dbg-col">
+        <h4>سرعت و مرکب</h4>
+        <div class="row"><span>سرعت</span><b id="d_vel">0.000 px/ms</b></div>
+        <div class="row"><span>مرکب</span><b id="d_ink">0.00</b></div>
+        <div class="row"><span>چگالی</span><b id="d_dens">0.00</b></div>
+        <div class="row"><span>درنگ</span><b id="d_dwell">0 ms</b></div>
+        <h4>اجرا</h4>
+        <div class="row"><span>FPS</span><b id="d_fps">0</b></div>
+        <div class="row"><span>زمان فریم</span><b id="d_ft">0.00 ms</b></div>
+        <div class="row"><span>رویداد/ثانیه</span><b id="d_eps">0</b></div>
+        <div class="row"><span>نمونه/ثانیه</span><b id="d_sps">0</b></div>
+        <div class="row"><span>اوجِ بافر</span><b id="d_bpk">0</b></div>
+        <div class="row"><span>سرریز بافر</span><b id="d_bov">0</b></div>
+        <div class="row"><span>نمونهٔ محدودشده</span><b id="d_clamp">0</b></div>
+        <div class="row"><span>منبع ورودی</span><b id="d_src">—</b></div>
+      </div>
+
+      <div class="dbg-col">
+        <h4>قابلیت‌های دستگاه</h4>
+        <div class="row"><span>نوع اشاره‌گر</span><b id="c_ptype">—</b></div>
+        <div class="row"><span>فشار</span><b id="c_pressure">—</b></div>
+        <div class="row"><span>شیب (tilt)</span><b id="c_tilt">—</b></div>
+        <div class="row"><span>جهت‌گیری</span><b id="c_orient">—</b></div>
+        <div class="row"><span>چرخش بدنه (twist)</span><b id="c_twist">—</b></div>
+        <div class="row"><span>فشار مماسی</span><b id="c_tang">—</b></div>
+        <h4>API مرورگر</h4>
+        <div class="row"><span>pointerrawupdate</span><b id="c_raw">—</b></div>
+        <div class="row"><span>getCoalescedEvents</span><b id="c_coal">—</b></div>
+        <div class="row"><span>altitude/azimuth</span><b id="c_sph">—</b></div>
+        <div class="row"><span>بستر امن</span><b id="c_secure">—</b></div>
+        <div class="row"><span>منبع ورودی فعال</span><b id="c_src">—</b></div>
+        <div class="row"><span>حالت جهت‌گیری</span><b id="c_ostate">—</b></div>
+        <div class="row"><span>منشأ زاویهٔ نوک</span><b id="c_ofrom">—</b></div>
+        <h4>وضعیت سه‌بعدی قلم</h4>
+        <div class="row"><span>altitude</span><b id="d_alt">90°</b></div>
+        <div class="row"><span>azimuth</span><b id="d_az">0°</b></div>
+        <div class="row"><span>twist</span><b id="d_tw">0°</b></div>
+        <div class="row"><span>خوابیدن (lean)</span><b id="d_lean">0.00</b></div>
+        <div class="row"><span>جهت خوابیدن</span><b id="d_leandir">0°</b></div>
+        <div class="row"><span>زاویهٔ نسبی</span><b id="d_rel">0°</b></div>
+        <div class="row"><span>push / pull</span><b id="d_pp">0.00</b></div>
+        <div class="row"><span>پروفایل تماس u</span><b id="d_uprof">-1 … +1</b></div>
+      </div>
+
+      <div class="dbg-col">
+        <h4>مرکب (مؤلفه‌ها)</h4>
+        <div class="row"><span>مخزن</span><b id="i_res">1.00</b></div>
+        <div class="row"><span>جریان</span><b id="i_flow">1.00</b></div>
+        <div class="row"><span>نشست</span><b id="i_dep">1.00</b></div>
+        <div class="row"><span>تجمع</span><b id="i_pool">0.00</b></div>
+        <div class="row"><span>پخش</span><b id="i_spread">0.00</b></div>
+        <div class="row"><span>جذب کاغذ</span><b id="i_abs">0.00</b></div>
+        <h4>کالیبراسیون فشار</h4>
+        <label>کمینهٔ فشار خام <b id="k_minVal"></b>
+          <input id="k_min" type="range" min="0" max="0.5" step="0.005"></label>
+        <label>بیشینهٔ فشار خام <b id="k_maxVal"></b>
+          <input id="k_max" type="range" min="0.5" max="1" step="0.005"></label>
+        <label>ناحیهٔ مرده <b id="k_dzVal"></b>
+          <input id="k_dz" type="range" min="0" max="0.1" step="0.002"></label>
+        <label>هموارسازی <b id="k_smVal"></b>
+          <input id="k_sm" type="range" min="0.05" max="1" step="0.05"></label>
+        <label>نمای منحنی <b id="k_expVal"></b>
+          <input id="k_exp" type="range" min="0.3" max="3" step="0.05"></label>
+        <div class="row"><span>بازهٔ مشاهده‌شده</span><b id="k_obs">—</b></div>
+        <button id="k_auto">کالیبره از مشاهده</button>
+        <button id="k_save">ذخیرهٔ کالیبراسیون</button>
+        <button id="k_reset">پیش‌فرض کالیبراسیون</button>
+        <div class="row"><span>ذخیره‌شده؟</span><b id="k_state">—</b></div>
+      </div>
+
+      <div class="dbg-col dbg-tune">
+        <h4>پارامترها</h4>
+        <label>پهنای نوک (mm) <b id="t_mmVal"></b>
+          <input id="t_mm" type="range" min="0" max="20" step="0.5"></label>
+        <label>نمای منحنی فشار <b id="t_pexpVal"></b>
+          <input id="t_pexp" type="range" min="0.3" max="3" step="0.05"></label>
+        <label>هموارسازی فشار <b id="t_psmVal"></b>
+          <input id="t_psm" type="range" min="0.05" max="1" step="0.05"></label>
+        <label>کمینهٔ سطح تماس <b id="t_mincVal"></b>
+          <input id="t_minc" type="range" min="0" max="0.6" step="0.01"></label>
+        <label>بلندشدن پاشنه <b id="t_heelVal"></b>
+          <input id="t_heel" type="range" min="0" max="1" step="0.05"></label>
+        <label>ضریب گام نمونه <b id="t_spfVal"></b>
+          <input id="t_spf" type="range" min="0.05" max="1" step="0.05"></label>
+        <label>کمینهٔ گام (px) <b id="t_minspVal"></b>
+          <input id="t_minsp" type="range" min="0.25" max="4" step="0.05"></label>
+        <label>سقف نمونه/رویداد <b id="t_maxevVal"></b>
+          <input id="t_maxev" type="range" min="4" max="64" step="1"></label>
+        <label>اثر سرعت بر مرکب <b id="t_vinkVal"></b>
+          <input id="t_vink" type="range" min="0" max="1" step="0.05"></label>
+        <label>اثر سرعت بر پهنا <b id="t_vwVal"></b>
+          <input id="t_vw" type="range" min="0" max="1" step="0.05"></label>
+        <label>کف چگالی مرکب <b id="t_floorVal"></b>
+          <input id="t_floor" type="range" min="0.3" max="1" step="0.02"></label>
+        <label>تجمع مرکب در توقف <b id="t_poolVal"></b>
+          <input id="t_pool" type="range" min="0" max="1" step="0.05"></label>
+        <label>مرکب آغاز خط <b id="t_startVal"></b>
+          <input id="t_start" type="range" min="0" max="1" step="0.05"></label>
+        <label>طول دم (px) <b id="t_tailVal"></b>
+          <input id="t_tail" type="range" min="0" max="140" step="2"></label>
+        <label>اثر tilt بر زاویه <b id="t_tiltVal"></b>
+          <input id="t_tilt" type="range" min="0" max="1" step="0.05"></label>
+        <label>اثر tilt بر تماس <b id="t_tiltcVal"></b>
+          <input id="t_tiltc" type="range" min="0" max="1" step="0.05"></label>
+        <label>گِردی گوشهٔ نوک <b id="t_roundVal"></b>
+          <input id="t_round" type="range" min="0" max="1" step="0.05"></label>
+        <button id="t_reset">بازگشت به پیش‌فرض</button>
+      </div>
+    </div>
+  </div>
+
+
+  <div id="wrap">
+    <div id="paper">
+      <canvas id="paperTex"></canvas>
+      <canvas id="ink"></canvas>
+      <canvas id="guide"></canvas>
+
+      <div class="hint">آهسته بکش = خط کلفت، سریع بکش = خط نازک. با قلم لامسی/دیجیتال فشارِ واقعی قلم هم حساب می‌شود.</div>
+      <div id="hud" class="hud">press: 0.00 | w: 0% | thick: 0.0px | speed: 0.0 | twist: 0°</div>
+    </div>
+  </div>
+</div>
+
+<script src="stylus.js"></script>
+<script src="qalam-engine.js"></script>
+<!-- لایهٔ «دستیارِ هوشمند خوشنویسی» + «خودکارِ ساچمه‌ایِ واقعی».
+     پیش از app.js بارگذاری می‌شوند تا app.js بتواند قلاب‌ها را ببیند.
+     اگر این سه فایل نباشند، app.js دقیقاً مثل قبل کار می‌کند. -->
+<script src="assist-engine.js"></script>
+<script src="reference-analyzer.js"></script>
+<script src="assist-ui.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

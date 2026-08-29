@@ -1,0 +1,220 @@
+<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>آزمون فشار با قلم واقعی</title><link rel="stylesheet" href="_style.css">
+<style>
+ #pad{height:300px;background:#fffdf7;border:2px dashed #b9a887;border-radius:9px;
+   position:relative;overflow:hidden;touch-action:none;user-select:none}
+ #pad canvas{position:absolute;inset:0;width:100%;height:100%}
+ #bands{display:flex;flex-wrap:wrap;gap:6px}
+ .band{border:1px solid #e0d6c4;border-radius:6px;padding:5px 7px;min-width:118px;
+   font:10px Consolas,monospace;direction:ltr;background:#fffdf8}
+ .band.hit{background:#e8f3ea;border-color:#2e7d4f}
+ .band b{display:block;font-size:11px;color:#6b4e32}
+ #nibview{border:1px solid #ddd3c0;border-radius:6px;background:#fffefa}
+</style></head>
+<body>
+<header><h1>آزمون فشار — با قلم نوری انجام دهید</h1><a href="index.html">آزمایشگاه</a></header>
+<main>
+<div class="card"><h2>ناحیهٔ آزمون</h2>
+  <div id="pad"><canvas id="tr"></canvas></div>
+  <p class="hint">یک خطِ بلند بکشید و در طول آن فشار را از صفر تا بیشینه
+  زیاد و کم کنید. هر بازهٔ فشار که به آن رسیدید سبز می‌شود و اعدادش پر
+  می‌شود. هدف: دیدنِ این‌که <b>فشار روی «سطحِ تماس» اثر می‌گذارد</b>، نه
+  فقط روی شفافیت.</p>
+  <button id="reset">پاک کردن</button>
+</div>
+<div class="card"><h2>نردبان فشار 0 … 1</h2><div id="bands"></div></div>
+<div class="card"><h2>وضعیت زنده</h2>
+  <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start">
+    <div id="live" style="flex:1 1 300px"></div>
+    <canvas id="nibview" width="220" height="130"></canvas>
+  </div>
+</div>
+</main>
+<script src="../stylus.js"></script><script src="../qalam-engine.js"></script>
+<script>
+window.addEventListener('error',e=>{window.__err=e.message+' @'+e.lineno;});
+(function () {
+  'use strict';
+  try {
+  const QS = window.QalamStylus, QE = window.QalamEngine;
+  const $ = id => document.getElementById(id);
+  const pad = $('pad'), cv = $('tr'), cx = cv.getContext('2d');
+  const nv = $('nibview'), nvx = nv.getContext('2d');
+
+  const cfg = QE.createConfig({ nibWidth: 34, nibThickness: 1.4, nibAngle: 105,
+                                heelLift: 0.7, angleMode: 'fixed' });
+  const norm = new QS.StylusNormalizer();
+  const contact = new QE.ContactState();
+  const ink = new QE.InkState();
+  const fp = new Float32Array(8);
+  const hull = new QE.Hull();
+  const fpPrev = new Float32Array(8);
+  let havePrev = false, prevLean = 0, lastT = 0, lastX = 0, lastY = 0, speed = 0;
+
+  const BANDS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+  const data = BANDS.map(v => ({ p: v, hit: false, cw: 0, ct: 0, rendered: 0,
+                                 dens: 0, vel: 0, uh: 0, ut: 0 }));
+
+  function renderBands() {
+    $('bands').innerHTML = data.map((d, i) => {
+      return '<div class="band' + (d.hit ? ' hit' : '') + '">' +
+        '<b>p ≈ ' + d.p.toFixed(1) + '</b>' +
+        'contactW ' + d.cw.toFixed(2) + 'px<br>' +
+        'rendered ' + d.rendered.toFixed(2) + 'px<br>' +
+        'thick ' + d.ct.toFixed(2) + 'px<br>' +
+        'density ' + d.dens.toFixed(3) + '<br>' +
+        'v ' + (d.vel * 1000).toFixed(0) + 'px/s<br>' +
+        'u [' + d.uh.toFixed(2) + ',' + d.ut.toFixed(2) + ']' +
+        '</div>';
+    }).join('');
+  }
+
+  function drawNibView() {
+    const w = nv.width, h = nv.height;
+    nvx.clearRect(0, 0, w, h);
+    const sc = Math.min((w - 24) / cfg.nibWidth, 5);
+    const ccx = w / 2, ccy = h / 2;
+    const ang = contact.angleRad;
+    // پهنای کاملِ لبه (خط‌چین)
+    nvx.strokeStyle = '#c9beab'; nvx.setLineDash([3, 3]); nvx.lineWidth = 1;
+    nvx.beginPath();
+    nvx.moveTo(ccx - Math.cos(ang) * cfg.nibWidth * 0.5 * sc,
+               ccy - Math.sin(ang) * cfg.nibWidth * 0.5 * sc);
+    nvx.lineTo(ccx + Math.cos(ang) * cfg.nibWidth * 0.5 * sc,
+               ccy + Math.sin(ang) * cfg.nibWidth * 0.5 * sc);
+    nvx.stroke(); nvx.setLineDash([]);
+    // سطحِ تماسِ فعلی
+    QE.footprintFromProfile(fp, ccx, ccy, ang, cfg.nibWidth * sc,
+                            contact.uHeel, contact.uToe,
+                            Math.max(3, contact.thickness * sc));
+    nvx.fillStyle = '#6b4e32';
+    nvx.beginPath(); nvx.moveTo(fp[0], fp[1]);
+    for (let i = 1; i < 4; i++) nvx.lineTo(fp[i * 2], fp[i * 2 + 1]);
+    nvx.closePath(); nvx.fill();
+    nvx.fillStyle = '#7a6a52'; nvx.font = '10px monospace';
+    nvx.fillText('TOE', 4, 12);
+    nvx.fillText('HEEL', 4, h - 5);
+  }
+
+  function renderLive(st) {
+    const f = (v, d) => (typeof v === 'number' ? v.toFixed(d == null ? 3 : d) : '—');
+    const supTxt = v => v === QS.SUPPORT.SUPPORTED ? 'بله'
+      : (v === QS.SUPPORT.UNSUPPORTED ? 'خیر' : 'نامعلوم');
+    $('live').innerHTML = '<table>' + [
+      ['pointerType', st.pointerType || '—'],
+      ['حسگر فشار دارد؟', supTxt(st.pressureSupport)],
+      ['فشار جانشین؟', st.pressureIsFallback ? 'بله' : 'خیر'],
+      ['pressure خام', f(st.pressureRaw)],
+      ['pressure کالیبره', f(st.pressure)],
+      ['contact width', f(contact.width, 2) + ' px'],
+      ['contact thickness', f(contact.thickness, 2) + ' px'],
+      ['پروفایل u', '[' + f(contact.uHeel, 2) + ' , ' + f(contact.uToe, 2) + ']'],
+      ['نسبت سطح تماس', f(contact.ratio, 3)],
+      ['پهنای دیده‌شده', f(contact.apparent, 2) + ' px'],
+      ['lean / leanDir', f(st.lean, 2) + ' / ' + f(st.leanDir * QS.RAD2DEG, 0) + '°'],
+      ['حالت جهت‌گیری', st.orientationState],
+      ['منشأ زاویهٔ لبه', contact.orientationFrom],
+      ['push/pull', f(contact.pushPull, 2)],
+      ['سرعت', (speed * 1000).toFixed(0) + ' px/s'],
+      ['مرکب: جریان/نشست', f(ink.flow, 2) + ' / ' + f(ink.deposition, 2)],
+      ['چگالی مرکب', f(ink.density, 3)],
+    ].map(r => '<tr><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>').join('') + '</table>';
+  }
+
+  function resize() {
+    const r = pad.getBoundingClientRect();
+    const d = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d);
+    cx.setTransform(d, 0, 0, d, 0, 0);
+  }
+  resize(); new ResizeObserver(resize).observe(pad);
+
+  let active = false, id = -1;
+  const orient = { lean: 0, leanDir: 0, leanValid: false, twist: 0, twistValid: false };
+
+  function handle(ev) {
+    const r = pad.getBoundingClientRect();
+    const st = norm.normalize(ev, { originX: r.left, originY: r.top,
+      source: ev.type, fallbackPressure: 0.75 });
+
+    const dt = Math.max(1, st.t - lastT);
+    if (lastT) {
+      const d = Math.hypot(st.x - lastX, st.y - lastY);
+      speed = speed * 0.6 + (d / dt) * 0.4;
+    }
+    lastT = st.t; lastX = st.x; lastY = st.y;
+
+    orient.lean = st.lean; orient.leanDir = st.leanDir;
+    orient.leanValid = st.orientationState === QS.ORIENTATION.VALID ||
+                       st.orientationState === QS.ORIENTATION.HELD;
+    orient.twist = st.twist;
+    orient.twistValid = st.twistSupport === QS.SUPPORT.SUPPORTED && st.twist !== 0;
+
+    const dir = havePrev ? Math.atan2(st.y - prevY, st.x - prevX) : null;
+    QE.computeContact(contact, cfg, st.pressure, speed, dir, orient, prevLean);
+    prevLean = contact.lean;
+    QE.computeInk(ink, cfg, contact.ratio, speed, 0, 999,
+                  contact.pushPull, contact.width * contact.thickness, dt);
+
+    // رسم با هندسهٔ واقعیِ سطحِ تماس
+    QE.footprintFromProfile(fp, st.x, st.y, contact.angleRad, cfg.nibWidth,
+                            contact.uHeel, contact.uToe, contact.thickness);
+    if (active) {
+      cx.globalAlpha = 0.72 + 0.28 * ink.density;
+      cx.fillStyle = '#2a1d10';
+      if (havePrev) {
+        const n = hull.build(fpPrev, fp);
+        cx.beginPath(); cx.moveTo(hull.outX[0], hull.outY[0]);
+        for (let i = 1; i < n; i++) cx.lineTo(hull.outX[i], hull.outY[i]);
+        cx.closePath(); cx.fill();
+      } else {
+        cx.beginPath(); cx.moveTo(fp[0], fp[1]);
+        for (let i = 1; i < 4; i++) cx.lineTo(fp[i * 2], fp[i * 2 + 1]);
+        cx.closePath(); cx.fill();
+      }
+      fpPrev.set(fp); havePrev = true;
+      prevX = st.x; prevY = st.y;
+
+      // ثبت در بازهٔ فشار
+      const bi = Math.round(QS.clamp01(st.pressure) * 10);
+      const d = data[bi];
+      if (d) {
+        d.hit = true; d.cw = contact.width; d.ct = contact.thickness;
+        d.rendered = contact.apparent; d.dens = ink.density; d.vel = speed;
+        d.uh = contact.uHeel; d.ut = contact.uToe;
+      }
+      renderBands();
+    }
+    renderLive(st);
+    drawNibView();
+  }
+  let prevX = 0, prevY = 0;
+
+  pad.addEventListener('pointerdown', ev => {
+    ev.preventDefault();
+    active = true; id = ev.pointerId; havePrev = false;
+    norm.resetStroke(); ink.reset(cfg); prevLean = 0; lastT = 0; speed = 0;
+    try { pad.setPointerCapture(id); } catch (_) {}
+    handle(ev);
+  });
+  pad.addEventListener('pointermove', ev => {
+    if (ev.pointerId !== id && active) return;
+    handle(ev);
+  });
+  pad.addEventListener('pointerup', () => { active = false; havePrev = false; });
+  pad.addEventListener('pointercancel', () => { active = false; havePrev = false; });
+  pad.addEventListener('contextmenu', e => e.preventDefault());
+  $('reset').onclick = () => {
+    cx.clearRect(0, 0, cv.width, cv.height);
+    for (const d of data) { d.hit = false; d.cw = d.ct = d.rendered = d.dens = d.vel = 0; }
+    renderBands();
+  };
+  renderBands();
+  QE.computeContact(contact, cfg, 0.5, 0, null, null, 0);
+  drawNibView();
+  window.__ready = { bands: document.querySelectorAll('.band').length,
+                     live: !!document.querySelector('#live table') };
+  } catch (e) { window.__err = String(e && e.stack || e); window.__ready = { error: window.__err }; }
+})();
+</script></body></html>

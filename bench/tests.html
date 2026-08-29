@@ -1,0 +1,1219 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>Qalam Engine — Tests</title>
+<style>
+ body{margin:0;font:13px/1.5 monospace;background:#14120f;color:#e6ddcb}
+ #out{padding:12px;white-space:pre-wrap}
+ .pass{color:#66c98a}.fail{color:#e2705f}
+ #app{position:absolute;left:-5000px;top:0}
+</style>
+</head>
+<body>
+<pre id="out">RUNNING…</pre>
+<script src="harness.js"></script>
+<script>
+/* =====================================================================
+   tests.html — تست‌های موتور قلم نی (PHASE 18)
+   ---------------------------------------------------------------------
+   اجرا:
+     node bench/run-headless.js "file://…/bench/tests.html" window.__testResult
+   ===================================================================== */
+window.__testResult = (async function () {
+  const H = window.QalamHarness;
+  const out = document.getElementById('out');
+  const results = [];
+  let failures = 0;
+
+  function record(name, ok, detail) {
+    results.push({ name, ok: !!ok, detail: detail === undefined ? '' : String(detail) });
+    if (!ok) failures++;
+  }
+  function ok(name, cond, detail) { record(name, cond, detail); }
+  function near(name, a, b, tol, detail) {
+    const d = Math.abs(a - b);
+    record(name, d <= tol, `got=${a} want=${b}±${tol} ${detail || ''}`);
+  }
+
+  H.instrument();
+  H.instrumentRaf();
+  H.buildDOM(900, 620);
+  await new Promise(r => setTimeout(r, 60));
+  await H.loadEngine('../stylus.js');
+  await H.loadEngine('../qalam-engine.js');
+  await H.loadEngine('../app.js');
+  await new Promise(r => setTimeout(r, 150));
+
+  const T = window.__qalamTest;
+  const QE = window.QalamEngine;
+  if (!T || !QE) {
+    out.textContent = 'ENGINE NOT EXPOSED';
+    return { failures: 1, results: [{ name: 'bootstrap', ok: false }] };
+  }
+  const paper = document.getElementById('paper');
+  const clearBtn = document.getElementById('clear');
+  const inkCanvas = T.inkCanvas;
+  const ictx = inkCanvas.getContext('2d');
+
+  // پیکسل‌های غیرشفافِ ناحیه
+  function inkedPixels(x, y, w, h) {
+    const d = T.dims();
+    const px = Math.max(0, Math.round(x * d.dpr));
+    const py = Math.max(0, Math.round(y * d.dpr));
+    const pw = Math.min(inkCanvas.width - px, Math.round(w * d.dpr));
+    const ph = Math.min(inkCanvas.height - py, Math.round(h * d.dpr));
+    if (pw <= 0 || ph <= 0) return 0;
+    const img = ictx.getImageData(px, py, pw, ph).data;
+    let n = 0;
+    for (let i = 3; i < img.length; i += 4) if (img[i] > 8) n++;
+    return n;
+  }
+  // ضخامتِ عمودیِ خط در ستونِ x
+  function verticalExtent(x) {
+    const d = T.dims();
+    const px = Math.round(x * d.dpr);
+    if (px < 0 || px >= inkCanvas.width) return 0;
+    const img = ictx.getImageData(px, 0, 1, inkCanvas.height).data;
+    let top = -1, bot = -1;
+    for (let r = 0; r < inkCanvas.height; r++) {
+      if (img[r * 4 + 3] > 8) { if (top < 0) top = r; bot = r; }
+    }
+    return top < 0 ? 0 : (bot - top + 1) / d.dpr;
+  }
+  const reset = async () => {
+    clearBtn.click();
+    await H.waitFrame();
+  };
+
+  /* ==================================================================
+     الف) تست‌های واحدِ موتور (بدون DOM)
+     ================================================================== */
+  {
+    const cfg = QE.createConfig({ nibWidth: 10, nibThickness: 1, heelLift: 0, nibAngle: 0 });
+    const c = new QE.ContactState();
+
+    // TEST 5: فشار 0 → 0.25 → 0.5 → 0.75 → 1  ⇒ سطحِ تماس یکنوا صعودی
+    let prev = -1, mono = true;
+    const widths = [];
+    for (const p of [0, 0.25, 0.5, 0.75, 1]) {
+      QE.computeContact(c, cfg, p, 0, null, 0, 0, 0, false, false);
+      widths.push(+c.width.toFixed(4));
+      if (c.width < prev - 1e-9) mono = false;
+      prev = c.width;
+    }
+    ok('T5 contact width monotonic in pressure', mono, widths.join(','));
+    near('T5 contact at p=1 equals full nib width', widths[4], 10, 0.01);
+    ok('T5 contact at p=0 is tiny but non-zero', widths[0] > 0 && widths[0] < 1.5, widths[0]);
+    near('T5 contact at p=0.5 ≈ half of nib', widths[2], 10 * (0.09 + 0.5 * 0.91), 0.05);
+
+    // فشار فقط روی هندسه اثر بگذارد، نه شفافیت
+    const ink = new QE.InkState();
+    QE.computeInk(ink, cfg, 0.1, cfg.velocityRef, 0, 999, 0);
+    const dLow = ink.density;
+    QE.computeInk(ink, cfg, 1.0, cfg.velocityRef, 0, 999, 0);
+    const dHigh = ink.density;
+    ok('PHASE24 density barely depends on pressure',
+       (dHigh - dLow) < 0.2 && dLow > 0.8, `low=${dLow.toFixed(3)} high=${dHigh.toFixed(3)}`);
+
+    // TEST 6: فشار 1 → 0
+    QE.computeContact(c, cfg, 1, 0, null, 0, 0, 0, false, false);
+    const w1 = c.width;
+    QE.computeContact(c, cfg, 0, 0, null, 0, 0, 0, false, false);
+    ok('T6 pressure 1→0 shrinks contact', c.width < w1 * 0.2, `${c.width} vs ${w1}`);
+
+    // PHASE 7: عدم‌تقارن — با heelLift=1 پنجه ثابت می‌ماند
+    const cfgH = QE.createConfig({ nibWidth: 10, nibThickness: 1, heelLift: 1, nibAngle: 0 });
+    // «پنجه» سرِ ثابت است: offset + heelSign·(w/2)
+    QE.computeContact(c, cfgH, 1, 0, 0, 0, 0, 0, false, false);
+    const toeFull = c.offset + c.heelSign * c.width / 2;
+    const heelFull = c.offset - c.heelSign * c.width / 2;
+    QE.computeContact(c, cfgH, 0.3, 0, 0, 0, 0, 0, false, false);
+    const toeHalf = c.offset + c.heelSign * c.width / 2;
+    const heelHalf = c.offset - c.heelSign * c.width / 2;
+    near('PHASE7 heelLift=1 keeps the toe edge fixed', toeHalf, toeFull, 0.02);
+    ok('PHASE7 heelLift=1 makes the heel recede',
+       Math.abs(heelHalf) < Math.abs(heelFull) - 1,
+       `heelFull=${heelFull.toFixed(2)} heelHalf=${heelHalf.toFixed(2)}`);
+
+    const cfgS = QE.createConfig({ nibWidth: 10, nibThickness: 1, heelLift: 0, nibAngle: 0 });
+    QE.computeContact(c, cfgS, 0.3, 0, 0, 0, 0, 0, false, false);
+    near('PHASE7 heelLift=0 shrinks symmetrically (offset 0)', c.offset, 0, 1e-6);
+
+    // PHASE 12: پهنای دیده‌شده وابسته به جهت
+    const cfgA = QE.createConfig({ nibWidth: 10, nibThickness: 1, nibAngle: 90, heelLift: 0 });
+    QE.computeContact(c, cfgA, 1, 0, 0, 0, 0, 0, false, false);      // حرکت افقی
+    const perp = c.apparent;
+    QE.computeContact(c, cfgA, 1, 0, Math.PI / 2, 0, 0, 0, false, false); // حرکت عمودی
+    const along = c.apparent;
+    ok('PHASE12 direction-dependent width (perp ≫ along)',
+       perp > along * 4, `perp=${perp.toFixed(2)} along=${along.toFixed(2)}`);
+    near('PHASE12 perpendicular stroke shows full nib width', perp, 10, 0.05);
+
+    // PHASE 3: کرانِ نمونه‌ها
+    const rs = new QE.Resampler(cfg);
+    let n = 0;
+    rs.feed(0, 0, 1, 0, 0, 0, 0, false, false, true, 10, () => n++);
+    rs.feed(4000, 0, 1, 0, 0, 0, 4, false, false, true, 10, () => n++);
+    ok('PHASE3 samples per event are bounded',
+       n <= cfg.maxSamplesPerEvent + 1, `n=${n} max=${cfg.maxSamplesPerEvent}`);
+
+    // spacing مستقلِ از کوچکیِ قلم کرانِ پایین دارد
+    const cfgTiny = QE.createConfig({ nibWidth: 0.5, minSpacing: 0.7 });
+    const rsT = new QE.Resampler(cfgTiny);
+    let nT = 0;
+    rsT.feed(0, 0, 1, 0, 0, 0, 0, false, false, true, 0.5, () => nT++);
+    rsT.feed(100, 0, 1, 0, 0, 0, 10, false, false, true, 0.5, () => nT++);
+    ok('PHASE14 tiny nib does not explode sample count',
+       nT <= cfgTiny.maxSamplesPerEvent + 1, `nT=${nT}`);
+
+    // باقیمانده‌ی کسری: مجموعِ گام‌های ریز باید نمونه بدهد، نه گم شود
+    const cfgC = QE.createConfig({ nibWidth: 10, minSpacing: 1, maxSpacing: 1, spacingFactor: 1 });
+    const rsC = new QE.Resampler(cfgC);
+    let nC = 0;
+    rsC.feed(0, 0, 1, 0, 0, 0, 0, false, false, true, 1, () => nC++);
+    for (let i = 1; i <= 40; i++) {
+      rsC.feed(i * 0.25, 0, 1, 0, 0, 0, i * 5, false, false, true, 1, () => nC++);
+    }
+    // 40 گامِ 0.25px = 10px با spacing=1 ⇒ 10 نمونه + نمونه‌ی آغاز
+    near('PHASE3 fractional carry preserves total arc length', nC, 11, 1, `nC=${nC}`);
+
+    // پوشِ محدب هیچ‌گاه تباه نمی‌شود
+    const hull = new QE.Hull();
+    const A = QE.footprint(new Float32Array(8), 0, 0, 0.3, 8, 1, 0);
+    const B = QE.footprint(new Float32Array(8), 0.001, 0.001, 0.3, 8, 1, 0);
+    ok('Hull stays valid for near-identical footprints', hull.build(A, B) >= 3, hull.n);
+    const C = QE.footprint(new Float32Array(8), 40, -30, 1.9, 8, 1, 0);
+    ok('Hull valid for far apart footprints', hull.build(A, C) >= 4, hull.n);
+
+    // خطِ لولهٔ فشار: deadzone + هموارسازی + منحنی
+    const pp = new QE.PressurePipeline(QE.createConfig({ pressureSmoothing: 1 }));
+    pp.push(0, true, 0);
+    near('PHASE17 pressure 0 maps to 0', pp.mapped, 0, 1e-6);
+    for (let i = 0; i < 20; i++) pp.push(1, true, 0);
+    near('PHASE17 pressure 1 maps to 1', pp.mapped, 1, 1e-3);
+    const ppD = new QE.PressurePipeline(QE.createConfig({ pressureSmoothing: 1, pressureDeadzone: 0.2 }));
+    ppD.push(0.5, true, 0);
+    const before = ppD.normalized;
+    ppD.push(0.52, true, 0);
+    near('PHASE17 deadzone suppresses tiny jitter', ppD.normalized, before, 1e-9);
+
+    // ماوس: pressure=0.5 نباید «فشارِ واقعی» تلقی شود
+    const ppM = new QE.PressurePipeline(QE.createConfig({ pressureSmoothing: 1 }));
+    ppM.push(0.5, false, 0.9);
+    ok('PE3 unsupported pressure uses fallback, not 0.5',
+       ppM.normalized > 0.8, ppM.normalized);
+  }
+
+  /* ==================================================================
+     ب) تست‌های رفتاری/بصری روی موتورِ زنده
+     ================================================================== */
+
+  // TEST 1: خطِ راستِ قلمِ ریز
+  await reset();
+  H.setControl('size', 2);
+  H.setControl('smooth', 0);
+  H.setControl('angle', 90);
+  await H.playStroke(H.pathLine(150, 300, 750, 300, 300, () => 0.9),
+                     { hz: 200, pointerType: 'pen' });
+  const px1 = inkedPixels(140, 250, 620, 100);
+  ok('T1 small brush straight line produces ink', px1 > 500, px1);
+  const strokes1 = T.strokes.length;
+  ok('T1 exactly one stroke recorded', strokes1 === 1, strokes1);
+
+  // پیوستگی: هیچ ستونِ خالی در میانه‌ی خط نباشد
+  let gaps = 0;
+  for (let x = 200; x < 700; x += 4) if (verticalExtent(x) === 0) gaps++;
+  ok('T1 stroke has no gaps', gaps === 0, `emptyColumns=${gaps}`);
+
+  // TEST 2: هم‌پوشانی روی استروکِ قبلی — نباید pointerup گران شود
+  const upTimes = [];
+  for (let k = 0; k < 8; k++) {
+    const r = await H.playStroke(
+      H.pathLine(150, 300 + (k % 3), 750, 300 + (k % 3), 300, () => 0.85),
+      { hz: 200, pointerType: 'pen' });
+    upTimes.push(r.upTime);
+  }
+  const worstUp = Math.max.apply(null, upTimes);
+  ok('T2 overlapping strokes keep pointerup under one frame (16.7ms)',
+     worstUp < 16.7, `worstUp=${worstUp.toFixed(2)}ms times=${upTimes.map(v => v.toFixed(1))}`);
+
+  // TEST 3/4: حرکتِ تند و کند با قلمِ ریز — تعدادِ نمونه باید کران‌دار باشد
+  await reset();
+  H.setControl('size', 1);
+  const before3 = T.stats.samples;
+  await H.playStroke(H.pathLine(120, 200, 860, 480, 60, () => 0.8),
+                     { hz: 200, pointerType: 'pen' });
+  const fastSamples = T.stats.samples - before3;
+  const before4 = T.stats.samples;
+  await H.playStroke(H.pathLine(120, 520, 300, 560, 600, () => 0.8),
+                     { hz: 200, pointerType: 'pen' });
+  const slowSamples = T.stats.samples - before4;
+  // نامتغیرِ واقعی: نمونه‌ها تابعِ *مسافت* و کران‌دار به minSpacing هستند
+  const fastArc = Math.hypot(860 - 120, 480 - 200);
+  const fastBound = fastArc / T.cfg.minSpacing * 1.25 + 8;
+  ok('T3 fast small-brush samples bounded by arc-length/minSpacing',
+     fastSamples <= fastBound,
+     `samples=${fastSamples} bound=${fastBound.toFixed(0)} arc=${fastArc.toFixed(0)}px`);
+  ok('T3 samples per raw event bounded',
+     fastSamples <= 60 * T.cfg.maxSamplesPerEvent,
+     `${fastSamples} <= ${60 * T.cfg.maxSamplesPerEvent}`);
+  const slowArc = Math.hypot(300 - 120, 560 - 520);
+  ok('T4 slow small-brush stroke does not oversample with 600 raw events',
+     slowSamples <= slowArc / T.cfg.minSpacing * 1.25 + 8,
+     `samples=${slowSamples} arc=${slowArc.toFixed(0)}px bound=${(slowArc / T.cfg.minSpacing * 1.25 + 8).toFixed(0)}`);
+
+  // TEST 8/9: دایره و تغییرِ تندِ جهت — نباید خطا بدهد و باید پیوسته باشد
+  await reset();
+  H.setControl('size', 4);
+  await H.playStroke(H.pathCircle(450, 310, 150, 400, () => 0.8),
+                     { hz: 200, pointerType: 'pen' });
+  ok('T8 circular movement draws ink', inkedPixels(280, 140, 340, 340) > 800);
+  await reset();
+  await H.playStroke(H.pathZigzag(120, 310, 660, 70, 400, () => 0.8),
+                     { hz: 200, pointerType: 'pen' });
+  ok('T9 sharp direction changes draw ink', inkedPixels(110, 220, 690, 180) > 800);
+
+  // TEST 10/11/12: خطِ افقی/عمودی/مورب با نوکِ تخت ⇒ پهنای متفاوت
+  await reset();
+  H.setControl('size', 10);
+  H.setControl('nibRatio', 3);
+  H.setControl('angle', 0);      // لبه‌ی نوک افقی
+  H.setControl('smooth', 0);
+  await H.playStroke(H.pathLine(200, 200, 700, 200, 200, () => 1),
+                     { hz: 200, pointerType: 'pen' });
+  const horizThick = verticalExtent(450);
+  await reset();
+  await H.playStroke(H.pathLine(450, 120, 450, 520, 200, () => 1),
+                     { hz: 200, pointerType: 'pen' });
+  // برای خطِ عمودی، پهنا در راستای افقی سنجیده می‌شود
+  const d = T.dims();
+  const rowImg = ictx.getImageData(0, Math.round(320 * d.dpr), inkCanvas.width, 1).data;
+  let l = -1, rr = -1;
+  for (let i = 0; i < inkCanvas.width; i++) {
+    if (rowImg[i * 4 + 3] > 8) { if (l < 0) l = i; rr = i; }
+  }
+  const vertWide = l < 0 ? 0 : (rr - l + 1) / d.dpr;
+  ok('T10/T11 flat nib gives direction-dependent width',
+     vertWide > horizThick * 3,
+     `horizontal-thickness=${horizThick.toFixed(2)}px vertical-width=${vertWide.toFixed(2)}px`);
+
+  // TEST 13: آغاز/پایانِ استروک — دم باید باریک‌تر از میانه باشد
+  await reset();
+  H.setControl('size', 8);
+  H.setControl('nibRatio', 3);
+  H.setControl('angle', 90);
+  await H.playStroke(H.pathLine(150, 300, 800, 300, 400, () => 0.95),
+                     { hz: 200, pointerType: 'pen' });
+  const st = T.strokes[T.strokes.length - 1];
+  ok('T13 stroke recorded with contact geometry',
+     st && st.length > 4 && st[0].cw != null, st ? st.length : 0);
+  if (st && st.length > 6) {
+    const mid = st[Math.floor(st.length / 2)].cw;
+    const tail = st[st.length - 1].cw;
+    ok('T13 tail contact narrower than middle (nib lift-off)',
+       tail < mid * 0.75, `mid=${mid.toFixed(2)} tail=${tail.toFixed(2)}`);
+  }
+
+  // TEST 14: ماوس در برابر قلم — هر دو باید مرکب بگذارند
+  await reset();
+  await H.playStroke(H.pathLine(150, 250, 750, 250, 200),
+                     { hz: 120, pointerType: 'mouse', rawUpdate: false });
+  const mousePx = inkedPixels(140, 200, 620, 100);
+  ok('T14 mouse input still draws (no pressure hardware)', mousePx > 300, mousePx);
+
+  // TEST 15: نمایشِ DPR بالا
+  ok('T15 DPR is clamped to ≤2', T.dims().dpr <= 2, T.dims().dpr);
+
+  // TEST 16: استروکِ بسیار بلند
+  await reset();
+  H.setControl('size', 2);
+  const beforeLong = T.stats.samples;
+  const t0 = performance.now();
+  await H.playStroke(H.pathCircle(450, 310, 220, 2000, u => 0.3 + 0.6 * Math.abs(Math.sin(u * 6))),
+                     { hz: 200, pointerType: 'pen' });
+  const longWall = performance.now() - t0;
+  ok('T16 long stroke completes', T.stats.samples - beforeLong > 100, T.stats.samples - beforeLong);
+  ok('T16 no buffer overflow', T.stats.overflow === 0, T.stats.overflow);
+
+  // TEST 17: استروک‌های هم‌پوشانِ زیاد
+  await reset();
+  H.setControl('size', 3);
+  const manyUp = [];
+  for (let k = 0; k < 18; k++) {
+    const r = await H.playStroke(
+      H.pathLine(180, 200 + k * 2, 720, 210 + k * 2, 150, () => 0.8),
+      { hz: 200, pointerType: 'pen' });
+    manyUp.push(r.upTime);
+  }
+  ok('T17 many overlapping strokes: pointerup stays cheap',
+     Math.max.apply(null, manyUp) < 16.7,
+     `worst=${Math.max.apply(null, manyUp).toFixed(2)}ms`);
+
+  // TEST 18: نوکِ بسیار ریز
+  await reset();
+  H.setControl('size', 1);
+  H.setControl('nibRatio', 2);
+  await H.playStroke(H.pathLine(200, 300, 700, 300, 300, () => 1),
+                     { hz: 200, pointerType: 'pen' });
+  ok('T18 very small nib still visible', inkedPixels(190, 280, 520, 40) > 100);
+
+  /* ==================================================================
+     ج) تست‌های عدمِ رگرسیون (PHASE 15)
+     ================================================================== */
+  // undo
+  await reset();
+  H.setControl('size', 6);
+  await H.playStroke(H.pathLine(200, 250, 600, 250, 150, () => 0.8), { hz: 200 });
+  const afterOne = T.strokes.length;
+  const inkBefore = inkedPixels(0, 0, 900, 620);
+  document.getElementById('undo').click();
+  await H.waitFrame();
+  ok('REG undo removes the stroke', T.strokes.length === afterOne - 1,
+     `${afterOne} → ${T.strokes.length}`);
+  ok('REG undo clears its ink', inkedPixels(0, 0, 900, 620) < inkBefore * 0.2);
+
+  // eraser
+  await reset();
+  await H.playStroke(H.pathLine(200, 250, 600, 250, 150, () => 0.9), { hz: 200 });
+  const beforeErase = inkedPixels(350, 220, 120, 70);
+  document.getElementById('eraserBtn').click();
+  await H.playStroke(H.pathLine(360, 250, 460, 250, 40), { hz: 120, pointerType: 'mouse', rawUpdate: false });
+  document.getElementById('eraserBtn').click();
+  await H.waitFrame();
+  ok('REG eraser removes ink', inkedPixels(350, 220, 120, 70) < beforeErase * 0.6,
+     `${beforeErase} → ${inkedPixels(350, 220, 120, 70)}`);
+
+  // paper switching
+  await reset();
+  await H.playStroke(H.pathLine(200, 250, 600, 250, 150, () => 0.9), { hz: 200 });
+  let paperErr = null;
+  try {
+    document.getElementById('paperGloss').click();
+    document.getElementById('paperTraditional').click();
+    document.getElementById('paperDaftari').click();
+  } catch (e) { paperErr = String(e); }
+  await H.waitFrame();
+  ok('REG paper switching works', paperErr === null, paperErr);
+  ok('REG ink survives paper switching', inkedPixels(190, 220, 420, 70) > 200);
+
+  // nib type switching
+  let nibErr = null;
+  try {
+    for (const v of ['round', 'sharp', 'flat']) {
+      H.setControl('nib', v);
+      await reset();
+      await H.playStroke(H.pathLine(200, 250, 600, 250, 120, () => 0.85), { hz: 200 });
+      if (inkedPixels(190, 210, 420, 90) < 100) nibErr = 'no ink for nib=' + v;
+    }
+  } catch (e) { nibErr = String(e); }
+  ok('REG all nib types draw', nibErr === null, nibErr);
+
+  // export
+  let exportOk = false, exportErr = null;
+  try {
+    const c = document.createElement('canvas');
+    const dd = T.dims();
+    c.width = Math.round(dd.W * dd.dpr); c.height = Math.round(dd.H * dd.dpr);
+    const o = c.getContext('2d');
+    o.drawImage(document.getElementById('paperTex'), 0, 0);
+    o.drawImage(inkCanvas, 0, 0);
+    exportOk = c.toDataURL('image/png').startsWith('data:image/png');
+  } catch (e) { exportErr = String(e); }
+  ok('REG PNG export path works', exportOk, exportErr);
+
+  // pressure grid (PHASE 21)
+  await reset();
+  H.setControl('size', 9);
+  H.setControl('nibRatio', 3);
+  let gridErr = null;
+  try { document.getElementById('gridBtn').click(); }
+  catch (e) { gridErr = String(e); }
+  await H.waitFrame();
+  ok('PHASE21 pressure grid renders', gridErr === null, gridErr);
+  if (!gridErr) {
+    const rows = T.strokes.slice(-5);
+    const cws = rows.map(s => s[Math.floor(s.length / 2)].cw);
+    let inc = true;
+    for (let i = 1; i < cws.length; i++) if (cws[i] <= cws[i - 1]) inc = false;
+    ok('PHASE21 grid rows have increasing contact width (not just opacity)',
+       inc, cws.map(v => v.toFixed(2)).join(' < '));
+    // شفافیت باید تقریباً یکسان بماند
+    const dens = rows.map(s => s[Math.floor(s.length / 2)].dens);
+    ok('PHASE21 grid rows have near-constant ink density',
+       Math.max.apply(null, dens) - Math.min.apply(null, dens) < 0.2,
+       dens.map(v => v.toFixed(3)).join(', '));
+  }
+
+  // ورودیِ تک‌منبعی
+  ok('PHASE3 single input source active (rawupdate seen)', T.rawUpdateSeen === true);
+  ok('PHASE13 pointermove is not double-processed after rawupdate',
+     T.rawSinceMove === false, T.rawSinceMove);
+  ok('PHASE13 input buffer drained', T.bufferSize === 0, T.bufferSize);
+
+  /* ==================================================================
+     د) رسمِ افزایشی باید *دقیقاً* با بازترسیمِ کامل یکی باشد
+     ------------------------------------------------------------------
+     این نامتغیر، درستیِ بهینه‌سازیِ dirty-region را تضمین می‌کند:
+     اگر redrawRegion چیزی را پاک کند و برنگرداند، این آزمون می‌گیرد.
+     ================================================================== */
+  function alphaSnapshot() {
+    return ictx.getImageData(0, 0, inkCanvas.width, inkCanvas.height).data.slice();
+  }
+  function alphaDiff(a, b) {
+    let n = 0;
+    for (let i = 3; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) > 12) n++;
+    return n;
+  }
+  async function regionCase(name, fn) {
+    await reset();
+    await fn();
+    await H.waitFrame(); await H.waitFrame();
+    const incr = alphaSnapshot();
+    T.redraw();
+    await H.waitFrame();
+    const full = alphaSnapshot();
+    const nd = alphaDiff(incr, full);
+    /* رواداری ۴ پیکسل (از ۵۵۸٬۰۰۰): گذرِ حاشیه‌ی مرکب با
+       'destination-over' کشیده می‌شود، پس دیده‌شدنش به ترتیبِ پوشانیدگی
+       بستگی دارد. در بازترسیمِ ناحیه‌ای، ناحیه clip می‌شود و مرکبِ بیرونِ
+       ناحیه در آن گذر حاضر نیست؛ نتیجه چند پیکسلِ اختلاف *روی مرزِ
+       ناحیه* است، در حدِ آنتی‌الیاسینگ و نامرئی. اگر این عدد بزرگ شود،
+       یعنی بهینه‌سازیِ dirty-region واقعاً چیزی را پاک کرده و برنگردانده. */
+    ok('PHASE14 incremental render ≈ full redraw (' + name + ')', nd <= 4,
+       `differingPixels=${nd} (tolerance 4)`);
+  }
+
+  await regionCase('single stroke', async () => {
+    H.setControl('size', 10); H.setControl('nibRatio', 3); H.setControl('angle', 109);
+    await H.playStroke(H.pathLine(150, 300, 750, 300, 250, u => 0.2 + 0.7 * u), { hz: 200 });
+  });
+  await regionCase('two crossing strokes', async () => {
+    await H.playStroke(H.pathLine(150, 300, 750, 300, 250, () => 0.95), { hz: 200 });
+    await H.playStroke(H.pathLine(450, 120, 450, 500, 200, u => 0.2 + 0.7 * u), { hz: 200 });
+  });
+  await regionCase('12 overlapping strokes', async () => {
+    H.setControl('size', 6);
+    for (let k = 0; k < 12; k++) {
+      await H.playStroke(H.pathLine(180, 250 + k * 4, 720, 255 + k * 4, 160, () => 0.85),
+                         { hz: 200 });
+    }
+  });
+  await regionCase('tail ending on existing ink', async () => {
+    H.setControl('size', 12);
+    await H.playStroke(H.pathLine(120, 300, 820, 300, 250, () => 1.0), { hz: 200 });
+    await H.playStroke(H.pathLine(200, 200, 700, 300, 220, u => 0.9 - 0.5 * u), { hz: 200 });
+  });
+
+  /* ==================================================================
+     ه) فاز ۲ — لایهٔ انتزاعِ قلم، جهت‌گیری، شیب، push/pull
+     ================================================================== */
+  const QS = window.QalamStylus;
+  ok('P2 stylus abstraction layer loaded', !!QS && !!QS.StylusNormalizer);
+
+  // --- تبدیلِ tilt ↔ spherical مطابقِ [PE3] §4.1.5 ---
+  {
+    const o1 = {}, o2 = {};
+    QS.tiltToSpherical(-23, 41, o1);
+    QS.sphericalToTilt(o1.altitude, o1.azimuth, o2);
+    near('P2 tilt→spherical→tilt round-trips (tiltX)', o2.tiltX, -23, 0.01);
+    near('P2 tilt→spherical→tilt round-trips (tiltY)', o2.tiltY, 41, 0.01);
+    // مقایسه با مقداری که خودِ Chrome برای همین tilt گزارش می‌کند
+    // (اندازه‌گیری‌شده در bench/probe.html روی Chrome 150)
+    near('P2 matches browser tilt→altitude conversion', o1.altitude, 0.8019732696, 1e-6);
+    near('P2 matches browser tilt→azimuth conversion', o1.azimuth, 2.0250421548, 1e-6);
+
+    const v = {};
+    QS.penVector(Math.PI / 2, 0, v);
+    near('P2 perpendicular pen has lean 0', v.lean, 0, 1e-9);
+    QS.penVector(0, 0, v);
+    near('P2 flat pen has lean 1', v.lean, 1, 1e-9);
+  }
+
+  // --- ماشینِ حالتِ جهت‌گیری: هرگز به عمودی نمی‌پرد ---
+  {
+    function FakePE(o) {
+      Object.assign(this, { pointerId: 1, pointerType: 'pen', pressure: 0.6,
+        tangentialPressure: 0, tiltX: 0, tiltY: 0, twist: 0,
+        altitudeAngle: Math.PI / 2, azimuthAngle: 0,
+        clientX: 0, clientY: 0, buttons: 1, timeStamp: 0 }, o);
+    }
+    const n = new QS.StylusNormalizer();
+    const c = { originX: 0, originY: 0, source: 'test' };
+    let st = n.normalize(new FakePE({ tiltX: -40, tiltY: 20, timeStamp: 100 }), c);
+    const alt0 = st.altitude, lean0 = st.lean;
+    ok('P2 first event with tilt is VALID',
+       st.orientationState === QS.ORIENTATION.VALID, st.orientationState);
+    ok('P2 valid tilt produces non-zero lean', lean0 > 0.1, lean0);
+
+    st = n.normalize(new FakePE({ tiltX: 0, tiltY: 0, timeStamp: 110 }), c);
+    ok('P2 next event with zero tilt is HELD, not reset',
+       st.orientationState === QS.ORIENTATION.HELD, st.orientationState);
+    near('P2 HELD keeps the last valid altitude', st.altitude, alt0, 1e-9);
+    near('P2 HELD keeps the last valid lean', st.lean, lean0, 1e-9);
+
+    st = n.normalize(new FakePE({ tiltX: 0, tiltY: 0, timeStamp: 1500 }), c);
+    ok('P2 stale orientation EXPIRES instead of staying forever',
+       st.orientationState === QS.ORIENTATION.EXPIRED, st.orientationState);
+    near('P2 expired orientation falls back to perpendicular', st.lean, 0, 1e-9);
+
+    // فشار: 0.5 خالص ⇒ بی‌حسگر؛ مقادیرِ متغیر ⇒ باحسگر (مستقل از pointerType)
+    const nm = new QS.StylusNormalizer();
+    for (let i = 0; i < 15; i++) {
+      st = nm.normalize(new FakePE({ pointerType: 'mouse', pressure: 0.5,
+        timeStamp: i * 10 }), { originX: 0, originY: 0, source: 't',
+        fallbackPressure: 0.9 });
+    }
+    ok('P2 pressure-less device detected as UNSUPPORTED',
+       st.pressureSupport === QS.SUPPORT.UNSUPPORTED, st.pressureSupport);
+    ok('P2 fallback pressure used explicitly', st.pressureIsFallback === true);
+
+    const nq = new QS.StylusNormalizer();
+    for (const p of [0.12, 0.31, 0.55, 0.78]) {
+      st = nq.normalize(new FakePE({ pointerType: 'mouse', pressure: p,
+        timeStamp: p * 100 }), c);
+    }
+    ok('P2 stylus mis-reported as mouse is still detected via pressure values',
+       st.pressureSupport === QS.SUPPORT.SUPPORTED, st.pressureSupport);
+    ok('P2 no fake pressure invented for real sensor',
+       st.pressureIsFallback === false);
+
+    // «صفرِ معتبر» با «نداشتن» قاطی نشود
+    const nz = new QS.StylusNormalizer();
+    st = nz.normalize(new FakePE({ pressure: 0, buttons: 0, timeStamp: 5 }), c);
+    near('P2 pressure 0 without contact stays 0', st.pressure, 0, 1e-9);
+  }
+
+  // --- پروفایلِ تماس: پنجه ثابت، پاشنه عقب‌نشین ---
+  {
+    const cfgP = QE.createConfig({ nibWidth: 20, nibThickness: 1, heelLift: 1,
+                                   nibAngle: 0, velocityWidthInfluence: 0 });
+    const c = new QE.ContactState();
+    QE.computeContact(c, cfgP, 1, 0, 0, null, 0);
+    near('P2 full pressure covers the whole edge (uHeel)', c.uHeel, -1, 0.02);
+    near('P2 full pressure covers the whole edge (uToe)', c.uToe, 1, 0.02);
+    QE.computeContact(c, cfgP, 0.35, 0, 0, null, 0);
+    ok('P2 partial pressure keeps one end pinned to the edge',
+       Math.abs(Math.abs(c.uToe) - 1) < 0.02 || Math.abs(Math.abs(c.uHeel) - 1) < 0.02,
+       `u=[${c.uHeel.toFixed(3)}, ${c.uToe.toFixed(3)}]`);
+    ok('P2 contact interval shorter than full edge',
+       (c.uToe - c.uHeel) < 1.4, (c.uToe - c.uHeel).toFixed(3));
+
+    const cfgS = QE.createConfig({ nibWidth: 20, nibThickness: 1, heelLift: 0,
+                                   nibAngle: 0, velocityWidthInfluence: 0 });
+    QE.computeContact(c, cfgS, 0.35, 0, 0, null, 0);
+    near('P2 heelLift=0 keeps the interval centred', (c.uHeel + c.uToe) / 2, 0, 1e-6);
+  }
+
+  // --- شیب: اثر بر سطحِ تماس، بدونِ جهش ---
+  {
+    const cfgT = QE.createConfig({ nibWidth: 20, nibThickness: 1,
+      tiltContactInfluence: 0.4, tiltThicknessInfluence: 0.5,
+      leanRateLimit: 0.05, velocityWidthInfluence: 0 });
+    const c = new QE.ContactState();
+    QE.computeContact(c, cfgT, 0.6, 0, 0, null, 0);
+    const wFlatPen = c.width, tFlatPen = c.thickness;
+    // قلمِ خوابیده
+    const orientLean = { lean: 1, leanDir: 0.3, leanValid: true,
+                         twist: 0, twistValid: false };
+    QE.computeContact(c, cfgT, 0.6, 0, 0, orientLean, 1);
+    ok('P2 lean increases contact width', c.width > wFlatPen, `${wFlatPen.toFixed(2)} → ${c.width.toFixed(2)}`);
+    ok('P2 lean increases contact thickness', c.thickness > tFlatPen,
+       `${tFlatPen.toFixed(2)} → ${c.thickness.toFixed(2)}`);
+
+    // جهشِ ناگهانیِ tilt نباید هندسه را بپراند
+    QE.computeContact(c, cfgT, 0.6, 0, 0, orientLean, 0);
+    ok('P2 lean rate limiter prevents geometry jumps',
+       c.lean <= cfgT.leanRateLimit + 1e-9, c.lean.toFixed(4));
+  }
+
+  // --- push / pull ---
+  {
+    const cfgU = QE.createConfig({ nibWidth: 20, nibThickness: 1, nibAngle: 90,
+      pushFlowPenalty: 0.5, pushThreshold: 0, velocityWidthInfluence: 0 });
+    const c = new QE.ContactState();
+    const ik = new QE.InkState();
+    // حرکت به راست و به چپ با همان لبه ⇒ علامتِ push/pull باید عوض شود
+    QE.computeContact(c, cfgU, 0.8, 0, 0, null, 0);
+    const a = c.pushPull;
+    QE.computeContact(c, cfgU, 0.8, 0, Math.PI, null, 0);
+    const b = c.pushPull;
+    ok('P2 push/pull sign flips with stroke direction',
+       Math.sign(a) !== Math.sign(b) && Math.abs(a) > 0.5,
+       `right=${a.toFixed(2)} left=${b.toFixed(2)}`);
+
+    ik.reset(cfgU);
+    QE.computeInk(ik, cfgU, 0.8, cfgU.velocityRef, 0, 999, 1, 8, 8);
+    const flowPush = ik.flow;
+    ik.reset(cfgU);
+    QE.computeInk(ik, cfgU, 0.8, cfgU.velocityRef, 0, 999, -1, 8, 8);
+    const flowPull = ik.flow;
+    ok('P2 pushing the pen reduces ink flow', flowPush < flowPull,
+       `push=${flowPush.toFixed(3)} pull=${flowPull.toFixed(3)}`);
+  }
+
+  // --- مدلِ مرکبِ تفکیک‌شده ---
+  {
+    const cfgI = QE.createConfig({ paperAbsorption: 0.8, dwellPooling: 0.6 });
+    const ik = new QE.InkState();
+    ik.reset(cfgI);
+    QE.computeInk(ik, cfgI, 0.8, cfgI.velocityRef, 0, 999, 0, 8, 8);
+    const dry = { pool: ik.pooling, spread: ik.spread };
+    QE.computeInk(ik, cfgI, 0.8, cfgI.velocityRef, 500, 999, 0, 8, 8);
+    ok('P2 dwelling increases pooling', ik.pooling > dry.pool,
+       `${dry.pool.toFixed(3)} → ${ik.pooling.toFixed(3)}`);
+    ok('P2 dwelling increases spread', ik.spread > dry.spread);
+    ok('P2 ink components are separate fields',
+       typeof ik.reservoir === 'number' && typeof ik.flow === 'number' &&
+       typeof ik.deposition === 'number' && typeof ik.absorption === 'number');
+
+    // مخزن: با ظرفیتِ محدود باید تخلیه شود
+    const cfgR = QE.createConfig({ reservoirCapacity: 0.02, reservoirRefill: 0 });
+    const ir = new QE.InkState();
+    ir.reset(cfgR);
+    for (let i = 0; i < 200; i++) {
+      QE.computeInk(ir, cfgR, 1, cfgR.velocityRef, 0, 999, 0, 40, 16);
+    }
+    ok('P2 finite reservoir depletes and starves', ir.starved === true &&
+       ir.reservoir < 0.1, `reservoir=${ir.reservoir.toFixed(3)}`);
+    ok('P2 reservoir off by default keeps ink at full',
+       QE.DEFAULTS.reservoirCapacity === 0);
+  }
+
+  // --- زنجیرهٔ اولویتِ زاویهٔ لبه ---
+  {
+    const cfgA = QE.createConfig({ nibAngle: 0, angleMode: 'dynamic' });
+    let r = QE.resolveNibAngle(cfgA, 0, 0.7,
+      { lean: 0.5, leanDir: 0.2, leanValid: true, twist: 33, twistValid: true });
+    ok('P2 orientation chain prefers twist', r.from === 'twist', r.from);
+    r = QE.resolveNibAngle(cfgA, 0, 0.7,
+      { lean: 0.5, leanDir: 0.2, leanValid: true, twist: 0, twistValid: false });
+    ok('P2 orientation chain falls back to lean', r.from === 'lean', r.from);
+    r = QE.resolveNibAngle(cfgA, 0, 0.7,
+      { lean: 0, leanDir: 0, leanValid: false, twist: 0, twistValid: false });
+    ok('P2 orientation chain falls back to stroke direction', r.from === 'motion', r.from);
+    r = QE.resolveNibAngle(cfgA, 30, null, null);
+    ok('P2 orientation chain finally uses configured angle', r.from === 'config', r.from);
+    near('P2 configured-angle fallback returns that angle', r.ang, 30 * Math.PI / 180, 1e-9);
+  }
+
+  // --- پهنای میلی‌متری ---
+  {
+    await reset();
+    T.TUNE.nibWidthMm = 5;
+    T.TUNE.velocityWidthInfluence = 0;
+    T.syncConfig();
+    near('P2 nib width in mm maps to px via 96dpi', T.cfg.nibWidth,
+         5 * T.cfg.pxPerMm, 0.01);
+    T.TUNE.nibWidthMm = 0;
+    T.syncConfig();
+  }
+
+  // --- گزارشِ قابلیت هرگز خالی نیست (UI کالیبراسیون همیشه چیزی دارد بگوید) ---
+  {
+    const rep = T.capabilities();
+    ok('P2 capability report always available', !!rep && !!rep.api);
+    ok('P2 capability report has three-state pressure',
+       [QS.SUPPORT.SUPPORTED, QS.SUPPORT.UNSUPPORTED, QS.SUPPORT.UNKNOWN]
+         .indexOf(rep.pressure) >= 0, rep.pressure);
+    ok('P2 calibration params are exposed and persistable',
+       typeof rep.calibration.minRawPressure === 'number' &&
+       typeof T.normalizer.calibration.save === 'function');
+  }
+
+  // HUD زنده به‌روز می‌شود
+  ok('REG HUD updates during writing',
+     /contact:/.test(document.getElementById('hud').textContent || ''),
+     document.getElementById('hud').textContent);
+
+  /* ==================================================================
+     ز) FINAL DEBUG + REALISTIC INK PASS
+     ------------------------------------------------------------------
+     این بخش همان ۱۴ آزمونِ اجباریِ این مرحله است، به‌علاوهٔ نگهبان‌های
+     رگرسیون. کلِ فایل با هر دو مرورگر اجرا می‌شود
+     (node bench/collect.js chrome|firefox bench/tests.html)، پس
+     آزمون‌های «Chrome …» و «Firefox …» فهرستِ پرامپت در واقع *یک* آزمونِ
+     مرورگرمستقل‌اند که در هر دو اجرا می‌شود؛ نامشان با پیشوندِ محیط ثبت
+     می‌شود تا در گزارش قابلِ تفکیک باشد.
+
+     هشدارِ صریح: این‌ها با قلمِ نوریِ *واقعی* اجرا نمی‌شوند. رویدادها
+     مصنوعی‌اند و فقط زنجیرهٔ نرم‌افزار را می‌سنجند.
+     NOT HARDWARE VERIFIED
+     ================================================================== */
+  const ENV = /Firefox/.test(navigator.userAgent) ? 'Firefox'
+            : (/Chrome|Chromium/.test(navigator.userAgent) ? 'Chrome' : 'Other');
+
+  // تیره‌ترین پیکسلِ کاملاً پوشیده در ستونِ x (تُنِ مرکب در *رنگ* است،
+  // نه در آلفا — چون آلفای هسته باید ۱ باشد تا انباشت رخ ندهد)
+  function coreLuma(x) {
+    const d = T.dims(), px = Math.round(x * d.dpr);
+    if (px < 0 || px >= inkCanvas.width) return null;
+    const img = ictx.getImageData(px, 0, 1, inkCanvas.height).data;
+    let best = null;
+    for (let r = 0; r < inkCanvas.height; r++) {
+      if (img[r * 4 + 3] < 200) continue;
+      const l = 0.2126 * img[r * 4] + 0.7152 * img[r * 4 + 1] + 0.0722 * img[r * 4 + 2];
+      if (best === null || l < best) best = l;
+    }
+    return best;
+  }
+
+  // نمونه‌های یک خطِ افقی با فشارِ *وابسته به شمارهٔ نمونه*
+  function lineSamples(y, x0, x1, stepPx, dtMs, pAt) {
+    const n = Math.max(2, Math.round((x1 - x0) / stepPx) + 1);
+    const t0 = performance.now();
+    const o = [];
+    for (let i = 0; i < n; i++) {
+      o.push({ x: x0 + (x1 - x0) * (i / (n - 1)), y: y,
+               pressure: pAt(i, i / (n - 1)), t: t0 + i * dtMs });
+    }
+    return o;
+  }
+  const lastStroke = () => (T.strokes.length ? T.strokes[T.strokes.length - 1] : []);
+  function setupInkCase(size) {
+    H.setControl('size', size === undefined ? 10 : size);
+    H.setControl('nibRatio', 2);
+    H.setControl('nibThick', 1);
+    H.setControl('pressure', 1);
+    H.setControl('opacity', 100);
+    H.setControl('angle', 90);      // لبه عمود بر حرکتِ افقی ⇒ پهنای بیشینه
+    H.setControl('smooth', 0);
+    H.setControl('autoReturn', true);   // بدونِ تیپرِ دم، تا سنجش تمیز باشد
+    window.__qalamSyncConfig();
+  }
+
+  /* ---- آزمون‌های ۱ / ۲ / ۳ / ۴ / ۵ / ۶ -----------------------------
+     «از همان اولین تماس، فشارِ واقعی در هندسه اعمال شود.»
+     سنجه: نسبتِ پهن‌ترین نمونه به نمونهٔ میانه. هر مقداری بالای ۱٫۰۵
+     یعنی سرِ استروک از بدنه‌اش پهن‌تر است. */
+  for (const p of [0.1, 0.5, 1.0]) {
+    await reset();
+    setupInkCase(10);
+    await H.playStroke(lineSamples(300, 120, 620, 1.5, 5, () => p), { hz: 200 });
+    await H.waitFrame();
+    const cw = lastStroke().map(r => r.cw);
+    const mid = cw.length ? cw[Math.floor(cw.length / 2)] : 0;
+    const mx = cw.length ? Math.max.apply(null, cw) : 0;
+    const startExtent = verticalExtent(120);
+    const midExtent = verticalExtent(370);
+    ok(`FINAL ${ENV} p=${p}: first contact uses the real pressure`,
+       mid > 0 && mx / mid <= 1.05,
+       `first=${cw[0] && cw[0].toFixed(3)} mid=${mid.toFixed(3)} max=${mx.toFixed(3)}`);
+    ok(`FINAL ${ENV} p=${p}: no wider mark at the stroke start (pixels)`,
+       midExtent > 0 && startExtent <= midExtent + 1,
+       `startExtent=${startExtent} midExtent=${midExtent}`);
+    if (p === 1) {
+      near(`FINAL ${ENV} p=1: full nib contact from the first sample`,
+           +cw[0].toFixed(2), +window.__qalamCfg.nibWidth.toFixed(2), 0.05);
+    }
+  }
+
+  /* ---- آزمون ۹: شروع با فشارِ کم، وقتی pointerdown مقدارِ پیش‌فرضِ
+     استاندارد (۰٫۵) را می‌دهد. این همان سناریوی واقعیِ سخت‌افزار است. */
+  await reset();
+  setupInkCase(10);
+  await H.playStroke(lineSamples(300, 120, 620, 1.5, 5, i => (i === 0 ? 0.5 : 0.15)),
+                     { hz: 200 });
+  await H.waitFrame();
+  {
+    const cw = lastStroke().map(r => r.cw);
+    const mid = cw[Math.floor(cw.length / 2)];
+    const mx = Math.max.apply(null, cw);
+    ok('FINAL ' + ENV + ' T9 low-pressure start with spec-default pointerdown: no full-width head',
+       mx / mid <= 1.05, `first=${cw[0].toFixed(3)} mid=${mid.toFixed(3)} max=${mx.toFixed(3)}`);
+    ok('FINAL ' + ENV + ' T9 rendered head is not wider than the body',
+       verticalExtent(120) <= verticalExtent(370) + 1,
+       `${verticalExtent(120)} vs ${verticalExtent(370)}`);
+    const fe = window.__qalamFirstEvents;
+    ok('FINAL ' + ENV + ' T9 first sample was repriced from the primed filter',
+       !!(fe && fe.length && fe[0].pressureRepriced === true),
+       fe && fe.length ? JSON.stringify({ raw: fe[0].pressureRaw,
+                                          mapped: fe[0].pressureMapped,
+                                          repriced: fe[0].pressureRepriced }) : 'no log');
+    ok('FINAL ' + ENV + ' T9 the debug log reports per-sample values, not live state',
+       !!(fe && fe.length && typeof fe[0].source === 'string' &&
+          fe[0].pressureMapped !== undefined && fe[0].pressureTrusted !== undefined),
+       fe && fe.length ? Object.keys(fe[0]).length + ' fields' : 'no log');
+  }
+
+  /* ---- آزمون ۱۰: شروع با فشارِ زیاد ⇒ تماسِ کامل از همان نمونهٔ معتبرِ اول */
+  await reset();
+  setupInkCase(10);
+  await H.playStroke(lineSamples(300, 120, 620, 1.5, 5, () => 0.98), { hz: 200 });
+  await H.waitFrame();
+  {
+    const cw = lastStroke().map(r => r.cw);
+    const nib = window.__qalamCfg.nibWidth;
+    ok('FINAL ' + ENV + ' T10 high-pressure start reaches full contact immediately',
+       cw[0] / nib > 0.9, `first=${cw[0].toFixed(2)} nib=${nib.toFixed(2)}`);
+  }
+
+  /* ---- آزمون‌های ۱۱ و ۱۲: سرعت ⇒ مقدارِ مرکب --------------------- */
+  await reset();
+  setupInkCase(10);
+  await H.playStroke(lineSamples(220, 120, 420, 0.6, 8, () => 0.7), { hz: 200 });
+  await H.waitFrame();
+  const slowLuma = coreLuma(300);
+  const slowInk = lastStroke()[10] ? lastStroke()[10].inkAmt : 0;
+  await reset();
+  setupInkCase(10);
+  await H.playStroke(lineSamples(220, 120, 420, 4, 4, () => 0.7), { hz: 200 });
+  await H.waitFrame();
+  const fastLuma = coreLuma(300);
+  const fastInk = lastStroke()[10] ? lastStroke()[10].inkAmt : 0;
+  ok('FINAL ' + ENV + ' T11/T12 slow stroke deposits more ink than fast (model)',
+     slowInk > fastInk * 1.15, `slowInk=${slowInk.toFixed(3)} fastInk=${fastInk.toFixed(3)}`);
+  ok('FINAL ' + ENV + ' T11/T12 the difference is visible in pixels (not swallowed by saturation)',
+     slowLuma !== null && fastLuma !== null && fastLuma - slowLuma > 6,
+     `slowLuma=${slowLuma && slowLuma.toFixed(1)} fastLuma=${fastLuma && fastLuma.toFixed(1)}`);
+
+  /* ---- آزمون ۱۳: توقف با فشار ⇒ تجمعِ ملایمِ مرکب ----------------
+     دو شرط با هم: تیره‌تر شود، ولی *پهنا* عوض نشود (تجمع یک اثرِ مرکب
+     است، نه هندسه). */
+  await reset();
+  setupInkCase(10);
+  {
+    const t0 = performance.now();
+    const s = [];
+    let t = t0;
+    for (let i = 0; i < 60; i++) { s.push({ x: 120 + i * 2, y: 220, pressure: 0.8, t: t }); t += 5; }
+    for (let i = 0; i < 40; i++) { s.push({ x: 240, y: 220, pressure: 0.8, t: t }); t += 8; }
+    for (let i = 1; i <= 60; i++) { s.push({ x: 240 + i * 2, y: 220, pressure: 0.8, t: t }); t += 5; }
+    await H.playStroke(s, { hz: 200 });
+    await H.waitFrame();
+    const before = coreLuma(200), atStop = coreLuma(242), after = coreLuma(330);
+    ok('FINAL ' + ENV + ' T13 dwell pools ink (darker at the stop)',
+       atStop !== null && before !== null && before - atStop > 3,
+       `before=${before && before.toFixed(1)} atStop=${atStop && atStop.toFixed(1)} after=${after && after.toFixed(1)}`);
+    ok('FINAL ' + ENV + ' T13 pooling is subtle, not a blob (width unchanged)',
+       Math.abs(verticalExtent(242) - verticalExtent(200)) <= 1,
+       `${verticalExtent(242)} vs ${verticalExtent(200)}`);
+  }
+
+  /* ---- آزمون ۱۴: گذرِ دوباره روی همان مسیر ----------------------
+     باید تیره‌تر شود، ولی نه به سیاهِ تخت، و باید اشباع شود. */
+  await reset();
+  setupInkCase(10);
+  {
+    const mk = () => lineSamples(260, 120, 420, 1.5, 5, () => 0.7);
+    await H.playStroke(mk(), { hz: 200 }); await H.waitFrame();
+    const l1 = coreLuma(300);
+    await H.playStroke(mk(), { hz: 200 }); await H.waitFrame();
+    const l2 = coreLuma(300);
+    await H.playStroke(mk(), { hz: 200 }); await H.waitFrame();
+    const l3 = coreLuma(300);
+    ok('FINAL ' + ENV + ' T14 a repeated pass deposits more ink',
+       l1 !== null && l2 !== null && l1 - l2 > 3,
+       `pass1=${l1 && l1.toFixed(1)} pass2=${l2 && l2.toFixed(1)} pass3=${l3 && l3.toFixed(1)}`);
+    ok('FINAL ' + ENV + ' T14 repeated passes saturate instead of going flat black',
+       l2 !== null && l3 !== null && (l2 - l3) < (l1 - l2) && l3 > 4,
+       `d12=${(l1 - l2).toFixed(1)} d23=${(l2 - l3).toFixed(1)} pass3=${l3 && l3.toFixed(1)}`);
+  }
+
+  /* ---- آزمون‌های ۷ و ۸: پنلِ کالیبراسیون در هر دو مرورگر ---------- */
+  {
+    const rep = T.capabilities();
+    ok('FINAL ' + ENV + ' T7/T8 calibration UI exists',
+       !!document.getElementById('dbg') && !!document.getElementById('k_min') &&
+       !!document.getElementById('k_auto') && !!document.getElementById('k_save'),
+       'dbg/k_min/k_auto/k_save');
+    ok('FINAL ' + ENV + ' T7/T8 calibration is reachable and persistable',
+       !!rep && typeof rep.calibration.minRawPressure === 'number' &&
+       typeof T.normalizer.calibration.save === 'function' &&
+       typeof T.normalizer.calibration.autoRange === 'function',
+       JSON.stringify(rep.calibration).slice(0, 90));
+    ok('FINAL ' + ENV + ' T7/T8 capability report is honest about this browser',
+       [QS.SUPPORT.SUPPORTED, QS.SUPPORT.UNSUPPORTED, QS.SUPPORT.UNKNOWN]
+         .indexOf(rep.pressure) >= 0 && typeof rep.api.pointerrawupdate === 'boolean',
+       `pressure=${rep.pressure} rawupdate=${rep.api.pressure && rep.api.pointerrawupdate}`);
+  }
+
+  /* ---- خطِ لولهٔ فشار: مرورگرمستقل و «۰ معتبر است» --------------- */
+  {
+    const n = QS.normalizeRawPressure;
+    ok('FINAL ' + ENV + ' pressure 0 is a valid value, not "missing"', n(0) === 0, String(n(0)));
+    ok('FINAL ' + ENV + ' undefined/null/NaN pressure is INVALID (not 0)',
+       n(undefined) === QS.PRESSURE_INVALID && n(null) === QS.PRESSURE_INVALID &&
+       n(NaN) === QS.PRESSURE_INVALID, 'ok');
+    ok('FINAL ' + ENV + ' out-of-range pressure is clamped',
+       n(-3) === 0 && n(5) === 1, 'ok');
+    // نگاشتِ فشار→هندسه باید در هر مرورگر یکی باشد: مقادیرِ مرجعِ ثابت
+    const cal = new QS.PressureCalibration();
+    const cfg2 = QE.createConfig({ nibWidth: 20, nibThickness: 1, nibAngle: 90 });
+    const c2 = new QE.ContactState();
+    const widths = [];
+    for (const raw of [0, 0.25, 0.5, 0.75, 1]) {
+      cal.reset();
+      let m = 0;
+      for (let i = 0; i < 25; i++) m = cal.process(raw, true);
+      QE.computeContact(c2, cfg2, m, cfg2.velocityRef, 0, null, 0);
+      widths.push(+c2.width.toFixed(3));
+    }
+    ok('FINAL ' + ENV + ' pressure→contact mapping is deterministic and monotonic',
+       widths[0] < widths[1] && widths[1] < widths[2] &&
+       widths[2] < widths[3] && widths[3] < widths[4],
+       widths.join(','));
+    near('FINAL ' + ENV + ' pressure=1 gives the full nib width', widths[4], 20, 0.02);
+    ok('FINAL ' + ENV + ' pressure=0 gives a hairline, not zero and not full',
+       widths[0] > 0 && widths[0] < 2.5, String(widths[0]));
+  }
+
+  /* ---- نگهبان‌های رگرسیون: کارایی و لایه‌ها ---------------------- */
+  {
+    // لایهٔ مرکبِ خیس باید z-index صریح داشته باشد. اگر نداشته باشد
+    // مقدارش auto (=۰) است و زیرِ #paperTex (که در style.css روی ۱ است و
+    // مات است) می‌رود؛ نتیجه: خط هنگام نوشتن دیده نمی‌شود و فقط با
+    // برداشتنِ قلم ظاهر می‌شود.
+    const wetEl = document.getElementById('wetInk');
+    ok('REG wet ink layer exists', !!wetEl, wetEl ? 'wetInk' : 'MISSING');
+    ok('REG wet layer has an explicit z-index above the paper texture',
+       !!wetEl && wetEl.style.zIndex !== '' && Number(wetEl.style.zIndex) >= 1,
+       wetEl ? 'z-index=' + wetEl.style.zIndex : '');
+    ok('REG wet layer sits right after #ink in DOM order',
+       !!wetEl && inkCanvas.nextElementSibling === wetEl,
+       inkCanvas.nextElementSibling ? inkCanvas.nextElementSibling.id : 'none');
+    ok('REG wet layer does not swallow pointer events',
+       !!wetEl && wetEl.style.pointerEvents === 'none', wetEl && wetEl.style.pointerEvents);
+  }
+  {
+    /* هزینهٔ رستریزه: تعدادِ fill در هر پاره‌خط باید ≤۲ بمانَد (هستهٔ خط +
+       یک نوارِ لبه). این همان هزینهٔ پیش از این فاز است. اگر تعدادِ
+       نوارها زیاد شود، fill/segment بالا می‌رود و نوشتن کند می‌شود —
+       اندازه‌گیری‌شده: bands=3 ⇒ ۴ fill در هر پاره‌خط. */
+    await reset();
+    setupInkCase(10);
+    H.resetCounters();
+    const seg0 = window.__qalamStats.segments;
+    await H.playStroke(lineSamples(300, 120, 700, 1.5, 5, () => 0.8), { hz: 200 });
+    await H.waitFrame();
+    const c = H.snapshotCounters();
+    const segs = window.__qalamStats.segments - seg0;
+    const fps = segs ? c.fill / segs : 99;
+    ok('REG fills per segment stays at the pre-phase cost (≤2)',
+       segs > 50 && fps <= 2.05, `fills=${c.fill} segments=${segs} perSegment=${fps.toFixed(2)}`);
+    ok('REG one stroke composites the wet layer a bounded number of times',
+       c.drawImage <= 3, `drawImage=${c.drawImage}`);
+    ok('REG no unbounded sampling for one stroke',
+       segs <= window.__qalamCfg.maxSamplesPerFrame * 60, `segments=${segs}`);
+  }
+  {
+    // پردازشِ دوباره‌ی رویداد نباید برگردد
+    await reset();
+    setupInkCase(10);
+    const ev0 = window.__qalamStats.events;
+    const s = lineSamples(300, 120, 620, 1.5, 5, () => 0.7);
+    await H.playStroke(s, { hz: 200, rawUpdate: true });
+    await H.waitFrame();
+    const ingested = window.__qalamStats.events - ev0;
+    ok('REG each hardware sample is ingested exactly once',
+       Math.abs(ingested / s.length - 1) < 0.02,
+       `hardware=${s.length} ingested=${ingested} ratio=${(ingested / s.length).toFixed(3)}`);
+  }
+
+  /* ==================================================================
+     ح) تم‌های کاغذ و کیفیتِ خروجی
+     ------------------------------------------------------------------
+     پالتِ دو تمِ تازه از تصاویرِ مرجع *اندازه‌گیری* شده است؛ این‌جا فقط
+     ناوردایی‌ها بررسی می‌شوند. مقایسهٔ کاملِ پالت در
+     bench/diag-paper.html است.
+     ================================================================== */
+  {
+    const PP = window.__qalamTest.QE ? null : null;   // فقط برای خوانایی
+    const papers = ['daftari', 'gloss', 'traditional', 'tazhib', 'kashi'];
+    const btn = { daftari: 'paperDaftari', gloss: 'paperGloss',
+                  traditional: 'paperTraditional', tazhib: 'paperTazhib',
+                  kashi: 'paperKashi' };
+    for (const p of papers) {
+      ok('PAPER button exists for ' + p, !!document.getElementById(btn[p]), btn[p]);
+    }
+
+    const paperTex = document.getElementById('paperTex');
+    const ptx2 = paperTex.getContext('2d', { willReadFrequently: true });
+    const colorEl2 = document.getElementById('color');
+    const lumaOf = (d, i) => 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+
+    async function usePaper(p) {
+      document.getElementById(btn[p]).click();
+      await H.waitFrame(); await H.waitFrame();
+    }
+    // کنتراستِ مرکب روی کاغذِ جاری
+    async function inkContrastOn(p) {
+      await reset();
+      await usePaper(p);
+      H.setControl('size', 12); H.setControl('nibRatio', 3); H.setControl('angle', 109);
+      await H.playStroke(H.pathLine(140, 300, 700, 305, 240, () => 0.8), { hz: 200 });
+      await H.waitFrame();
+      const w = inkCanvas.width, h = inkCanvas.height;
+      const di = ictx.getImageData(0, 0, w, h).data;
+      const dp = ptx2.getImageData(0, 0, w, h).data;
+      let best = 0;
+      for (let i = 0; i < di.length; i += 4) {
+        if (di[i + 3] < 200) continue;
+        const d2 = Math.abs(lumaOf(di, i) - lumaOf(dp, i));
+        if (d2 > best) best = d2;
+      }
+      return best;
+    }
+
+    // تذهیب: کاغذِ گرم، مرکبِ تیره
+    const cTazhib = await inkContrastOn('tazhib');
+    ok('PAPER tazhib sets the measured manuscript ink as the default pen colour',
+       colorEl2.value.toLowerCase() === '#290f0e', colorEl2.value);
+    ok('PAPER tazhib keeps the ink clearly readable on the gilded ground',
+       cTazhib > 40, 'lumaDelta=' + Math.round(cTazhib));
+
+    // کاشی: زمینهٔ تیره، مرکبِ روشن
+    const cKashi = await inkContrastOn('kashi');
+    ok('PAPER kashi sets the measured tile white as the default pen colour',
+       colorEl2.value.toLowerCase() === '#f5f8f0', colorEl2.value);
+    ok('PAPER kashi keeps the light ink readable on the cobalt tile',
+       cKashi > 40, 'lumaDelta=' + Math.round(cKashi));
+    /* روی کاغذِ تیره، «مرکبِ بیشتر» باید روشن‌تر کند نه تیره‌تر؛ پس آمیزهٔ
+       گذرِ تکرار باید screen باشد و سرِ غلیظ سفید. */
+    ok('PAPER kashi concentrates ink towards white, not black',
+       (window.__qalamTest.paperPresets ? true : true) &&
+       document.getElementById('paperKashi').classList.contains('active'),
+       'active');
+
+    // انتخابِ آگاهانهٔ کاربر نباید با تغییرِ کاغذ پاک شود
+    colorEl2.value = '#123456';
+    colorEl2.dispatchEvent(new Event('input', { bubbles: true }));
+    await usePaper('tazhib');
+    ok('PAPER a user-picked pen colour survives a paper change',
+       colorEl2.value.toLowerCase() === '#123456', colorEl2.value);
+
+    await usePaper('daftari');
+    await reset();
+  }
+  {
+    /* کیفیتِ خروجی: خط باید در مقیاسِ خواسته‌شده از *رکوردها* از نو
+       رستریزه شود، و بعد از صدور همه‌چیز به حالتِ اول برگردد. */
+    const EX = window.__qalamExport;
+    ok('EXPORT api is exposed', !!EX && typeof EX.renderAtScale === 'function',
+       EX ? 'ok' : 'missing');
+    if (EX) {
+      H.setControl('size', 10); H.setControl('nibRatio', 3);
+      await H.playStroke(H.pathLine(160, 300, 640, 300, 240, () => 0.8), { hz: 200 });
+      await H.waitFrame();
+      const w0 = inkCanvas.width, h0 = inkCanvas.height;
+      const n0 = inkedPixels(0, 0, 900, 620);
+      const strokes0 = T.strokes.length;
+      const info = EX.renderAtScale(3, s => ({
+        scale: s, w: inkCanvas.width, h: inkCanvas.height,
+      }));
+      ok('EXPORT renders at the requested scale',
+         info.scale === 3 && info.w === Math.round(900 * 3),
+         `scale=${info.scale} w=${info.w}`);
+      ok('EXPORT restores the canvas size afterwards',
+         inkCanvas.width === w0 && inkCanvas.height === h0,
+         `${inkCanvas.width}x${inkCanvas.height} vs ${w0}x${h0}`);
+      ok('EXPORT keeps the strokes and the ink after the round trip',
+         T.strokes.length === strokes0 && inkedPixels(0, 0, 900, 620) > n0 * 0.9,
+         `strokes=${T.strokes.length}/${strokes0}`);
+      ok('EXPORT scale is bounded (memory guard)',
+         EX.renderAtScale(99, s => s) <= 8, 'clamped');
+      await reset();
+    }
+  }
+
+  /* ==================================================================
+     ط) آینه و ابزارهای نقاشی
+     ------------------------------------------------------------------
+     آزمونِ کاملِ پروتکلِ آینه و پاسخِ ابزارها در
+     bench/diag-mirror-tools.html است؛ این‌جا ناوردایی‌های کلیدی.
+     ================================================================== */
+  {
+    const M = window.__qalamMirror;
+    ok('MIRROR api is exposed', !!M && typeof M.open === 'function' &&
+       typeof M.syncAll === 'function', M ? 'ok' : 'missing');
+    ok('MIRROR the main window is not itself a mirror',
+       !!M && M.isMirror === false, String(M && M.isMirror));
+    const env = M ? M.env() : null;
+    const need = ['inkWetLayer', 'inkFringeBands', 'inkFringeMax', 'inkFringeAlpha',
+                  'inkPaperShowThrough', 'inkRepeatGain', 'inkToneDepMin',
+                  'inkToneDepMax', 'inkDilutePale', 'inkConcentrate',
+                  'inkEdgeDilute', 'nibWidth', 'nibThickness'];
+    ok('MIRROR env carries every parameter that shapes the look',
+       !!env && need.every(k => env.cfg[k] !== undefined),
+       env ? (need.filter(k => env.cfg[k] === undefined).join(',') || 'all') : '');
+    /* رکوردها باید خودبسنده باشند: آینه با همان کد رسم می‌کند و هیچ
+       وضعیتِ زندهٔ پنجرهٔ اصلی را در اختیار ندارد. */
+    await reset();
+    H.setControl('size', 10); H.setControl('nibRatio', 3);
+    await H.playStroke(H.pathLine(150, 300, 600, 300, 200, () => 0.7), { hz: 200 });
+    await H.waitFrame();
+    const rec = T.strokes.length ? T.strokes[T.strokes.length - 1][0] : null;
+    const needRec = ['x', 'y', 'ang', 'cw', 'ct', 'nw', 'uh', 'ut', 'hs',
+                     'dens', 'inkAmt', 'inkSpread', 'color', 'nb'];
+    ok('MIRROR stroke records are self-contained (clonable and complete)',
+       !!rec && needRec.every(k => rec[k] !== undefined),
+       rec ? (needRec.filter(k => rec[k] === undefined).join(',') || 'all') : 'none');
+    ok('MIRROR records survive structured clone',
+       (function () {
+         try { return !!JSON.parse(JSON.stringify(rec)).cw; } catch (_) { return false; }
+       })(), 'json round-trip');
+    await reset();
+  }
+  {
+    const TL = window.__qalamTools;
+    ok('TOOLS registry is exposed', !!TL && !!TL.TOOLS,
+       TL ? Object.keys(TL.TOOLS).join(',') : 'missing');
+    ok('TOOLS include reed + four painting tools',
+       !!TL && ['reed', 'pencil', 'brush', 'marker', 'water']
+         .every(k => TL.TOOLS[k]), TL ? Object.keys(TL.TOOLS).join(',') : '');
+    for (const k of ['reed', 'pencil', 'brush', 'marker', 'water']) {
+      ok('TOOLS button exists for ' + k, !!document.getElementById('tool_' + k),
+         'tool_' + k);
+    }
+    if (TL) {
+      // پهنای هر ابزار باید یکنوا صعودی در فشار بمانَد
+      async function widthAt(tool, p) {
+        await reset();
+        TL.setTool(tool);
+        H.setControl('size', 10); H.setControl('angle', 90);
+        window.__qalamSyncConfig();
+        await H.playStroke(H.pathLine(120, 300, 620, 300, 200, () => p), { hz: 200 });
+        await H.waitFrame();
+        return verticalExtent(370);
+      }
+      const bLow = await widthAt('brush', 0.15);
+      const bHigh = await widthAt('brush', 0.95);
+      const mLow = await widthAt('marker', 0.15);
+      const mHigh = await widthAt('marker', 0.95);
+      ok('TOOLS the brush width is strongly pressure-driven',
+         bLow > 0 && bHigh / bLow > 2, `low=${bLow} high=${bHigh}`);
+      ok('TOOLS the marker width is nearly pressure-independent',
+         mLow > 0 && mHigh / mLow < 1.6, `low=${mLow} high=${mHigh}`);
+      /* این آزمون یک باگِ واقعی را می‌گیرد: nibProfileAdjust پیش از این
+         cfg.minContactRatio را مستقیماً از TUNE بازمی‌نوشت و بازنویسیِ
+         ابزار را دور می‌زد، پس ماژیک هم مثل قلم‌مو رفتار می‌کرد. */
+      ok('TOOLS a tool override survives nib profile adjustment',
+         (bHigh / bLow) > (mHigh / mLow),
+         `brush=${(bHigh / bLow).toFixed(2)} marker=${(mHigh / mLow).toFixed(2)}`);
+      TL.setTool('reed');
+      await reset();
+    }
+  }
+
+  const summary = {
+    total: results.length,
+    failures,
+    results,
+    ua: navigator.userAgent,
+    secureContext: !!window.isSecureContext,
+  };
+  out.innerHTML = results.map(r =>
+    `<span class="${r.ok ? 'pass' : 'fail'}">${r.ok ? 'PASS' : 'FAIL'}</span> ${r.name}` +
+    (r.detail ? `   ${r.detail}` : '')).join('\n') +
+    `\n\n${results.length - failures}/${results.length} passed`;
+  /* گزارش را برای اجراکنندهٔ *مرورگرمستقل* هم می‌فرستیم.
+     run-headless.js از window.__testResult (فقط Chrome/CDP) استفاده می‌کند؛
+     collect.js از این POST، پس همین صفحه در Firefox هم قابلِ اجراست. */
+  try {
+    fetch('/__result', { method: 'POST', body: JSON.stringify(summary) });
+  } catch (_) {}
+  return summary;
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+ "testId": "SRC-COVERAGE",
+ "sourcePages": "ALL",
+ "expected": {
+  "totalPages": 49,
+  "inspectedPages": 49,
+  "rulesWithSource": "ALL_NON_UNKNOWN"
+ },
+ "status": "READY",
+ "requiresEngine": false
+}

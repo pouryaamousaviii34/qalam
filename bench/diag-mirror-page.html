@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head><meta charset="UTF-8"><title>mirror page smoke</title></head>
+<body>
+<pre id="out">…</pre>
+<script>
+/* mirror.html را در iframe بالا می‌آوریم و می‌سنجیم که:
+     • بی‌خطا بوت می‌شود (داربستِ کنترل‌ها کامل است)
+     • در حالتِ آینه است و ورودیِ قلم را نمی‌گیرد
+     • زمینه‌اش سفید است
+     • با پیامِ رکورد، واقعاً مرکب می‌گذارد
+   این همان چیزی است که در پنجرهٔ واقعی هم اجرا می‌شود. */
+(function () {
+  const R = { errors: [] };
+  const post = o => { try { fetch('/__result', { method: 'POST', body: JSON.stringify(o) }); } catch (e) {} };
+  const fr = document.createElement('iframe');
+  fr.style.cssText = 'width:900px;height:640px;border:0';
+  fr.src = '../mirror.html';
+  window.addEventListener('error', e => R.errors.push('outer: ' + e.message));
+  fr.onload = function () {
+    const w = fr.contentWindow, d = fr.contentDocument;
+    w.onerror = (m, s, l) => R.errors.push(String(m) + ' @' + l);
+    setTimeout(function () {
+      try {
+        const T = w.__qalamTest, M = w.__qalamMirror;
+        R.booted = !!T && !!M;
+        R.isMirror = !!(M && M.isMirror);
+        R.hasApply = typeof w.__qalamMirrorApply === 'function';
+        R.paperType = (function () {
+          // زمینهٔ آینه باید سفید باشد
+          const tex = d.getElementById('paperTex');
+          const c = tex.getContext('2d');
+          const px = c.getImageData(4, 4, 1, 1).data;
+          return [px[0], px[1], px[2], px[3]];
+        })();
+        R.dims = T ? T.dims() : null;
+
+        // یک استروکِ ساختگی بفرست و ببین مرکب می‌نشیند یا نه
+        const rec = (x) => ({
+          x: x, y: 200, r: 10, t: 0.5, ang: 109, pl: 0.6, dens: 0.95,
+          color: '#2a1d10', baseColor: '#2a1d10', nb: 'flat',
+          cw: 14, ct: 1.1, co: 0, ap: 14, nw: 24, uh: -0.3, ut: 0.28,
+          hs: 1, inkAmt: 0.9, inkSpread: 0.2, rough: 0, lean: 0, vel: 0.3, dir: 0,
+        });
+        const recs = [];
+        for (let x = 120; x <= 520; x += 4) recs.push(rec(x));
+        w.__qalamMirrorApply({ t: 'begin', id: 1, seq: 1, env: M.env ? null : null });
+        w.__qalamMirrorApply({ t: 'rec', id: 1, seq: 2, recs: recs });
+        w.__qalamMirrorApply({ t: 'end', id: 1, seq: 3 });
+
+        setTimeout(function () {
+          const ink = T.inkCanvas;
+          const ic = ink.getContext('2d');
+          const dd = ic.getImageData(0, 0, ink.width, ink.height).data;
+          let n = 0;
+          for (let i = 3; i < dd.length; i += 4) if (dd[i] > 8) n++;
+          R.inkedAfterMessage = n;
+          R.strokesAfterMessage = T.strokes.length;
+          // پاک‌کردن هم باید کار کند
+          w.__qalamMirrorApply({ t: 'clear', seq: 4 });
+          setTimeout(function () {
+            const d2 = ic.getImageData(0, 0, ink.width, ink.height).data;
+            let m = 0;
+            for (let i = 3; i < d2.length; i += 4) if (d2[i] > 8) m++;
+            R.inkedAfterClear = m;
+            R.ok = R.errors.length === 0 && R.booted && R.isMirror &&
+                   R.hasApply && R.inkedAfterMessage > 500 &&
+                   R.strokesAfterMessage === 1 && R.inkedAfterClear === 0 &&
+                   R.paperType[0] > 240 && R.paperType[1] > 240;
+            document.getElementById('out').textContent = JSON.stringify(R, null, 1);
+            post(R);
+          }, 260);
+        }, 320);
+      } catch (e) {
+        R.errors.push('probe: ' + (e && e.message ? e.message : String(e)));
+        document.getElementById('out').textContent = JSON.stringify(R, null, 1);
+        post(R);
+      }
+    }, 900);
+  };
+  document.body.appendChild(fr);
+})();
+</script>
+</body></html>

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head><meta charset="UTF-8"><title>live layer visibility</title>
+<style>body{margin:0;font:12px/1.5 monospace;background:#14120f;color:#e6ddcb}
+#out{padding:10px;white-space:pre-wrap}</style>
+</head>
+<body>
+<pre id="out">…</pre>
+<script src="harness.js"></script>
+<script>
+/* =====================================================================
+   diag-live.html — «آیا استروک هنگام نوشتن دیده می‌شود؟»
+   ---------------------------------------------------------------------
+   رگرسیونی که این صفحه می‌گیرد: لایهٔ مرکبِ خیس اگر z-index صریح نداشته
+   باشد، مقدارش auto (=۰) است و زیرِ #paperTex (z-index 1) که مات است
+   می‌رود. نتیجه: در حالِ نوشتن چیزی دیده نمی‌شود و خط فقط در لحظهٔ
+   برداشتنِ قلم (ترکیب روی #ink) ظاهر می‌شود.
+
+   این‌جا DOM واقعی نیست، پس دو چیز سنجیده می‌شود:
+     ۱) ترتیبِ پشته‌ای و z-indexِ محاسبه‌شدهٔ لایه‌ها
+     ۲) اینکه *پیش از pointerup* مرکب روی لایهٔ خیس هست
+   ===================================================================== */
+(async function () {
+  const H = window.QalamHarness;
+  const out = document.getElementById('out');
+  const R = { ua: navigator.userAgent, checks: [] };
+  const post = o => { try { fetch('/__result', { method: 'POST', body: JSON.stringify(o) }); } catch (_) {} };
+  const ok = (name, cond, detail) => R.checks.push({ name, ok: !!cond, detail: String(detail) });
+  window.onerror = (m, s, l, c, e) => {
+    R.fatal = String(m) + ' @' + l + (e && e.stack ? '\n' + e.stack : '');
+    out.textContent = R.fatal; post(R);
+  };
+
+  // DOM آزمون را *مرئی* می‌سازیم تا z-index واقعاً معنا داشته باشد
+  H.instrumentRaf();
+  const paper = H.buildDOM(700, 420);
+  document.getElementById('app').style.cssText = 'position:relative';
+  await new Promise(r => setTimeout(r, 60));
+  // شبیه‌سازیِ همان قواعدِ style.css پروژه
+  const st = document.createElement('style');
+  st.textContent = '#paper canvas{position:absolute;inset:0;width:100%;height:100%}' +
+                   '#paperTex{z-index:1}#ink{z-index:2}#guide{z-index:3}';
+  document.head.appendChild(st);
+
+  await H.loadEngine('../stylus.js');
+  await H.loadEngine('../qalam-engine.js');
+  await H.loadEngine('../app.js');
+  await new Promise(r => setTimeout(r, 150));
+
+  const T = window.__qalamTest;
+  const wet = document.getElementById('wetInk');
+  ok('wet layer exists', !!wet, wet ? wet.id : 'MISSING');
+  if (!wet) { out.textContent = JSON.stringify(R, null, 1); return post(R); }
+
+  const zi = el => getComputedStyle(el).zIndex;
+  R.zIndex = { paperTex: zi(document.getElementById('paperTex')),
+               ink: zi(document.getElementById('ink')),
+               wet: zi(wet), guide: zi(document.getElementById('guide')) };
+  const zw = parseInt(R.zIndex.wet, 10);
+  ok('wet z-index is explicit (not auto)', !isNaN(zw), R.zIndex.wet);
+  ok('wet is above the opaque paper texture',
+     !isNaN(zw) && zw >= parseInt(R.zIndex.paperTex, 10), JSON.stringify(R.zIndex));
+  ok('wet is not above the nib guide',
+     !isNaN(zw) && zw <= parseInt(R.zIndex.guide, 10), JSON.stringify(R.zIndex));
+  // ترتیبِ DOM: لایهٔ خیس باید بلافاصله بعد از #ink باشد تا با z-index مساوی
+  // روی آن قرار بگیرد
+  ok('wet comes right after #ink in DOM order',
+     document.getElementById('ink').nextElementSibling === wet,
+     document.getElementById('ink').nextElementSibling
+       ? document.getElementById('ink').nextElementSibling.id : 'none');
+
+  const wctx = wet.getContext('2d', { willReadFrequently: true });
+  const ictx = T.inkCanvas.getContext('2d', { willReadFrequently: true });
+  const inked = (cv, c) => {
+    const d = c.getImageData(0, 0, cv.width, cv.height).data;
+    let n = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 8) n++;
+    return n;
+  };
+
+  document.getElementById('clear').click();
+  await H.waitFrame();
+  H.setControl('size', 12); H.setControl('nibRatio', 3); H.setControl('angle', 109);
+
+  // ---- استروک را *دستی* پخش می‌کنیم تا بتوانیم میانِ آن اندازه بگیریم ----
+  const pts = H.pathLine(80, 200, 600, 210, 200, () => 0.75);
+  const id = H.newPointerId();
+  H.dispatch(H.makeEvent('pointerdown', pts[0], id, 'pen'));
+  for (let i = 1; i < 120; i += 4) {
+    const batch = pts.slice(i, i + 4);
+    for (const s of batch) H.dispatch(H.makeEvent('pointerrawupdate', s, id, 'pen'));
+    H.dispatch(H.makeEvent('pointermove', batch[batch.length - 1], id, 'pen', batch));
+    await H.waitFrame();
+  }
+  await H.waitFrame();
+
+  const wetMid = inked(wet, wctx);
+  const inkMid = inked(T.inkCanvas, ictx);
+  R.midStroke = { wetPixels: wetMid, inkPixels: inkMid };
+  ok('ink is on the WET layer while writing', wetMid > 500, 'wetPixels=' + wetMid);
+  ok('dry ink canvas is still empty while writing', inkMid === 0,
+     'inkPixels=' + inkMid);
+
+  // ---- پایانِ استروک ----
+  for (let i = 120; i < pts.length; i += 4) {
+    const batch = pts.slice(i, i + 4);
+    for (const s of batch) H.dispatch(H.makeEvent('pointerrawupdate', s, id, 'pen'));
+    H.dispatch(H.makeEvent('pointermove', batch[batch.length - 1], id, 'pen', batch));
+    await H.waitFrame();
+  }
+  H.dispatch(H.makeEvent('pointerup', pts[pts.length - 1], id, 'pen'));
+  await H.waitFrame(); await H.waitFrame();
+
+  const wetAfter = inked(wet, wctx);
+  const inkAfter = inked(T.inkCanvas, ictx);
+  R.afterStroke = { wetPixels: wetAfter, inkPixels: inkAfter };
+  ok('after pointerup the ink moved to the dry canvas', inkAfter > 500,
+     'inkPixels=' + inkAfter);
+  ok('after pointerup the wet layer is empty', wetAfter === 0,
+     'wetPixels=' + wetAfter);
+
+  R.failures = R.checks.filter(c => !c.ok).length;
+  out.textContent = JSON.stringify(R, null, 1);
+  post(R);
+})();
+</script>
+</body></html>

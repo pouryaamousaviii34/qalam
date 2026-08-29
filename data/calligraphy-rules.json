@@ -1,0 +1,618 @@
+{
+ "meta": {
+  "source": "adabolkat-AmirKhani.pdf",
+  "generatedBy": "PHASE E extraction",
+  "sourceTypeLegend": {
+   "SOURCE_EXPLICIT": "متن کتاب صریحاً می‌گوید",
+   "SOURCE_VISUAL": "از تصویر/نمونه استخراج شده",
+   "INFERRED": "استنتاج از چند مشاهده",
+   "UNKNOWN": "کتاب اطلاعات کافی ندارد"
+  }
+ },
+ "counts": {
+  "total": 24,
+  "SOURCE_EXPLICIT": 11,
+  "SOURCE_VISUAL": 4,
+  "INFERRED": 0,
+  "UNKNOWN": 9
+ },
+ "rules": [
+  {
+   "parameters": {
+    "dotShape": "SQUARE",
+    "dotSideEquals": "nib edge width (عرض بائه قلم)"
+   },
+   "engineMapping": {
+    "layer": "NIB_MODEL",
+    "parameter": "nibWidth",
+    "relation": "dotSide == nibWidth"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-NIB-001",
+   "category": "NIB_GEOMETRY",
+   "statement": "واحد اندازه‌گیری حروف و کلمات در خوشنویسی «نقطه» است و آن اثری از باء قلم بر روی کاغذ است که یک مربع کامل تشکیل دهد.",
+   "statementEn": "The unit of measurement is the dot: the mark left by the pen edge on paper that forms a complete square.",
+   "sourceType": "SOURCE_EXPLICIT",
+   "sourcePages": [
+    5
+   ],
+   "evidence": "متن صفحهٔ ۵، بند اول",
+   "confidence": 0.95,
+   "status": "VERIFIED"
+  },
+  {
+   "parameters": {
+    "dangPerDot": 6,
+    "dangLength": "nibWidth / 6"
+   },
+   "engineMapping": {
+    "layer": "LAYOUT_MODEL",
+    "parameter": "dangUnit",
+    "relation": "dang == nibWidth/6"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-DANG-001",
+   "category": "PROPORTION_UNIT",
+   "statement": "هر نقطه را به اندازهٔ عرض بائه قلم به ۶ قسمت تقسیم می‌کنند؛ هر قسمت یک «دانگ» نامیده می‌شود.",
+   "statementEn": "The dot is divided into 6 parts across the nib width; each part is one dāng.",
+   "sourceType": "SOURCE_EXPLICIT",
+   "sourcePages": [
+    5
+   ],
+   "evidence": "متن صفحهٔ ۵",
+   "confidence": 0.95,
+   "status": "VERIFIED"
+  },
+  {
+   "parameters": {
+    "thickThinQuantisedIn": "dāng"
+   },
+   "engineMapping": {
+    "layer": "NIB_MODEL",
+    "parameter": "contactWidth",
+    "relation": "ضخامت/نازکی باید مضربی از دانگ باشد"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-DANG-002",
+   "category": "THICK_THIN",
+   "statement": "طراحی حروف با ایجاد «قوت و ضعف»، تناسب، و اتصالات حروف برای تشکیل کلمه، با نسبت‌های لازمِ دانگ تحریر می‌شود.",
+   "statementEn": "Letter design — creating thickness/thinness (qovvat/za'f), proportion and letter connections — is written using the required dāng ratios.",
+   "sourceType": "SOURCE_EXPLICIT",
+   "sourcePages": [
+    5
+   ],
+   "evidence": "متن صفحهٔ ۵",
+   "confidence": 0.85,
+   "status": "VERIFIED",
+   "note": "کتاب مقدارِ عددیِ قوت/ضعف را برای حروفِ خاص در این صفحه نمی‌دهد."
+  },
+  {
+   "parameters": {
+    "classicalDotDang": 6,
+    "kalhorDotDang": 5,
+    "kalhorDotAspect": "5/6"
+   },
+   "engineMapping": {
+    "layer": "NIB_MODEL",
+    "parameter": "dotAspectRatio",
+    "relation": "نقطه در سبک کلهر مربعِ کامل نیست: نسبتِ کشش ۵ به ۶"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-STYLE-001",
+   "category": "NIB_GEOMETRY",
+   "statement": "استادان قدیم نقطه را مربع کامل (شش‌دانگی) مبنا می‌گرفتند؛ محمدرضای کلهر اندکی از طول کشش قلم کاهش داد و نقطهٔ پنج‌دانگی را مبنا قرار داد.",
+   "statementEn": "Old masters used the complete (six-dāng) square dot; Kalhor reduced the pen pull slightly and made the five-dāng dot the basis.",
+   "sourceType": "SOURCE_EXPLICIT",
+   "sourcePages": [
+    5,
+    7
+   ],
+   "evidence": "متن صفحهٔ ۵ و تکرارِ صریح در صفحهٔ ۷",
+   "confidence": 0.92,
+   "status": "VERIFIED"
+  },
+  {
+   "parameters": {
+    "cutQualitative": "BLUNTER_THAN_CLASSICAL"
+   },
+   "engineMapping": {
+    "layer": "NIB_MODEL",
+    "parameter": "nibThickness",
+    "relation": "ضخامتِ تیغه در سبک کلهر بیشتر از تراشِ قدیم است — مقدارِ عددی UNKNOWN"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-NIB-002",
+   "category": "NIB_GEOMETRY",
+   "statement": "تراش قلم در سبک کلهر «اندکی گوشت‌دارتر» بوده است.",
+   "statementEn": "In Kalhor's style the pen cut was slightly more 'fleshy' (blunter/thicker).",
+   "sourceType": "SOURCE_EXPLICIT",
+   "sourcePages": [
+    7
+   ],
+   "evidence": "متن صفحهٔ ۷: «با تغییر در تراش قلم که اندکی گوشت‌دارتر بوده»",
+   "confidence": 0.8,
+   "status": "VERIFIED",
+   "note": "کتاب هیچ عددی برای «گوشت‌دار بودن» نمی‌دهد. نسبتِ عددیِ ضخامت به پهنا UNKNOWN است."
+  },
+  {
+   "parameters": {
+    "variables": [
+     "تراش قلم",
+     "قلم‌گذاری",
+     "رانش قلم",
+     "دور دست",
+     "کرسی",
+     "ترکیب",
+     "اندازهٔ دانگ نقطه"
+    ]
+   },
+   "engineMapping": {
+    "layer": "MULTIPLE",
+    "parameter": "nibGeometry + nibOrientation + strokeDirection + baseline",
+    "relation": "فهرستِ متغیرهای بنیادی؛ با متغیرهای موتور هم‌پوشانی دارد"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-STYLE-002",
+   "category": "STYLE_FOUNDATION",
+   "statement": "اساس شیوهٔ هر استاد را باید در این متغیرها تحلیل کرد: تراش قلم، شیوهٔ قلم‌گذاری، طریق رانش قلم، دور دست، کرسی و ابتکار در ترکیب — و بالاتر از همه در اندازهٔ دانگِ نقطه.",
+   "statementEn": "A master's style must be analysed via: pen cut, pen placement, the way the pen is driven, hand movement, baseline, compositional invention — and above all the dāng-size of the dot.",
+   "sourceType": "SOURCE_EXPLICIT",
+   "sourcePages": [
+    7
+   ],
+   "evidence": "متن صفحهٔ ۷، بند اول",
+   "confidence": 0.9,
+   "status": "VERIFIED"
+  },
+  {
+   "parameters": {
+    "classes": [
+     "غبار",
+     "خفی",
+     "کتابت",
+     "سه‌فصلی",
+     "قطعه/مشقی",
+     "جلی صفحه",
+     "کتیبه"
+    ]
+   },
+   "engineMapping": {
+    "layer": "CALIBRATION",
+    "parameter": "nibWidthPreset"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-PEN-001",
+   "category": "PEN_SIZE_CLASSIFICATION",
+   "statement": "طبقه‌بندی سنتی قلم: ۱ غبار، ۲ خفی، ۳ کتابت، ۴ سه‌فصلی، ۵ قطعه/مشقی، ۶ جلی صفحه، ۷ کتیبه.",
+   "statementEn": "Traditional pen classes: ghobār, khafi, ketābat, se-fasli, qet'e/mashqi, jali-safhe, katibe.",
+   "sourceType": "SOURCE_EXPLICIT",
+   "sourcePages": [
+    6
+   ],
+   "evidence": "فهرستِ شماره‌دارِ صفحهٔ ۶",
+   "confidence": 0.92,
+   "status": "VERIFIED"
+  },
+  {
+   "parameters": {
+    "mmRanges": {
+     "غبار": [
+      0,
+      0.5
+     ],
+     "خفی": [
+      0.5,
+      0.75
+     ],
+     "کتابت": [
+      0.75,
+      1.5
+     ],
+     "سه‌فصلی": [
+      1.5,
+      2
+     ],
+     "مشقی": [
+      2,
+      6
+     ],
+     "جلی صفحه": [
+      6,
+      20
+     ],
+     "کتیبه": [
+      20,
+      null
+     ]
+    }
+   },
+   "engineMapping": {
+    "layer": "CALIBRATION",
+    "parameter": "nibWidthMm",
+    "relation": "مستقیماً روی nibWidthMm قابل اعمال است"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-PEN-002",
+   "category": "PEN_SIZE_CLASSIFICATION",
+   "statement": "معادل تقریبی رده‌های قلم بر حسب میلی‌متر: غبار تا ۰٫۵ · خفی ۰٫۵–۰٫۷۵ · کتابت ۰٫۷۵–۱٫۵ · سه‌فصلی ۱٫۵–۲ · مشقی ۲–۶ · جلی صفحه ۶–۲۰ · کتیبه بالای ۲۰.",
+   "statementEn": "Approximate mm equivalents of the pen classes.",
+   "sourceType": "SOURCE_EXPLICIT",
+   "sourcePages": [
+    6
+   ],
+   "evidence": "فهرستِ دومِ صفحهٔ ۶ («معادل تقریبی آنها را به سانتیمتر و میلیمتر می‌آوریم»)",
+   "confidence": 0.88,
+   "status": "VERIFIED",
+   "note": "کتاب خودش این معادل‌ها را «تقریبی» می‌نامد."
+  },
+  {
+   "parameters": {
+    "mashqiDang": {
+     "1": [
+      2,
+      2.5
+     ],
+     "2": [
+      2.5,
+      3
+     ],
+     "3": [
+      3.5,
+      4
+     ],
+     "4": [
+      4,
+      4.5
+     ],
+     "5": [
+      4.5,
+      5
+     ],
+     "6": [
+      5.5,
+      6
+     ],
+     "2.5": [
+      3,
+      3.5
+     ]
+    }
+   },
+   "engineMapping": {
+    "layer": "CALIBRATION",
+    "parameter": "nibWidthMm"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-PEN-003",
+   "category": "PEN_SIZE_CLASSIFICATION",
+   "statement": "نام‌گذاری دانگیِ قلمِ مشقی: ۲–۲٫۵mm یک دانگ · ۲٫۵–۳ دو دانگ · ۳–۳٫۵ دو و نیم دانگ · ۳٫۵–۴ سه دانگ · ۴–۴٫۵ چهار دانگ · ۴٫۵–۵ پنج دانگ · ۵٫۵–۶ شش دانگ.",
+   "statementEn": "Dāng naming of mashqi pen widths in mm.",
+   "sourceType": "SOURCE_EXPLICIT",
+   "sourcePages": [
+    6
+   ],
+   "evidence": "فهرستِ سومِ صفحهٔ ۶",
+   "confidence": 0.8,
+   "status": "PROVISIONAL",
+   "note": "این توالی خطی نیست (۳–۳٫۵ «دو و نیم دانگ») و بازهٔ ۵–۵٫۵ جا افتاده است؛ به CONFLICT-002 نگاه کنید."
+  },
+  {
+   "parameters": {
+    "unit": "dot",
+    "groups": "≥3 rows"
+   },
+   "engineMapping": {
+    "layer": "LAYOUT_MODEL",
+    "parameter": "baselineOffsetInDots"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-KERSEE-001",
+   "category": "BASELINE",
+   "statement": "حروف الفبا بر اساس رابطه‌شان با «خط میزان» (کرسی) دسته‌بندی می‌شوند و این رابطه بر حسب «نقطه» بیان می‌شود؛ گروهی یک نقطه زیر خط میزان قرار می‌گیرند و گروهی کششی کمتر از یک نقطه زیر آن دارند.",
+   "statementEn": "Letters are grouped by their relation to the mizān (baseline) line, expressed in dots: one group sits one dot below it, another extends slightly less than one dot below.",
+   "sourceType": "SOURCE_EXPLICIT",
+   "sourcePages": [
+    8
+   ],
+   "evidence": "شرحِ زیرِ سطرهای جدولِ الفبای صفحهٔ ۸",
+   "confidence": 0.72,
+   "status": "PROVISIONAL",
+   "note": "شرح‌ها در رزولوشنِ موجود تنها بخشی خوانا بودند؛ عبارتِ دقیقِ هر سطر کاملاً قطعی نیست."
+  },
+  {
+   "parameters": {
+    "letter": "م",
+    "offsetDots": 1,
+    "direction": "ABOVE"
+   },
+   "engineMapping": {
+    "layer": "LAYOUT_MODEL",
+    "parameter": "baselineOffsetInDots"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-KERSEE-002",
+   "category": "BASELINE",
+   "statement": "سرِ حرف «م» یک نقطه بالاتر از خط میزان قرار می‌گیرد.",
+   "statementEn": "The head of م is placed one dot above the mizān line.",
+   "sourceType": "SOURCE_VISUAL",
+   "sourcePages": [
+    8
+   ],
+   "evidence": "شرحِ پایینِ جدولِ صفحهٔ ۸ (خوانشِ جزئی)",
+   "confidence": 0.55,
+   "status": "PROVISIONAL",
+   "note": "خوانشِ عبارت قطعی نیست؛ نیازمندِ اسکنِ با رزولوشنِ بالاتر."
+  },
+  {
+   "parameters": {},
+   "engineMapping": {
+    "layer": "NONE",
+    "parameter": "documentation"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-DOC-001",
+   "category": "DOCUMENT_STRUCTURE",
+   "statement": "صفحهٔ بعد از مبحثِ تراش قلم، حروف الفبا بر اساس شیوهٔ کلهر و نحوهٔ اتصال حروف از «الف» تا «ی» را نشان می‌دهد.",
+   "statementEn": "The page following the pen-cut discussion presents the alphabet in Kalhor style and the letter-connection method from alef to ye.",
+   "sourceType": "SOURCE_EXPLICIT",
+   "sourcePages": [
+    7,
+    8
+   ],
+   "evidence": "بندِ پایانیِ صفحهٔ ۷",
+   "confidence": 0.9,
+   "status": "VERIFIED"
+  },
+  {
+   "parameters": {
+    "order": [
+     "ح",
+     "ر",
+     "س",
+     "ص",
+     "ط",
+     "ع",
+     "ق/و",
+     "ک",
+     "ل",
+     "م",
+     "ن",
+     "ه",
+     "ی"
+    ]
+   },
+   "engineMapping": {
+    "layer": "NONE",
+    "parameter": "curriculum"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-PRACTICE-001",
+   "category": "CURRICULUM",
+   "statement": "بخشِ مشق، حروف را به ترتیبِ الفبایی در صفحاتِ مستقل تمرین می‌دهد: ح، ر، س، ص، ط، ع، ق/و، ک، ل، م، ن، ه، ی.",
+   "statementEn": "The drill section trains letters in alphabetical order on separate pages.",
+   "sourceType": "SOURCE_VISUAL",
+   "sourcePages": [
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23
+   ],
+   "evidence": "سرصفحه و بلوکِ تمرینِ هر صفحه",
+   "confidence": 0.85,
+   "status": "VERIFIED",
+   "note": "صفحاتِ حروفِ آغازِ الفبا (ا، ب، ...) در این نسخه دیده نشد؛ ممکن است در بخشِ مقدماتی/صفحهٔ ۸ ادغام شده باشد."
+  },
+  {
+   "parameters": {},
+   "engineMapping": {
+    "layer": "LAYOUT_MODEL",
+    "parameter": "composition"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-COMPOSITION-001",
+   "category": "COMPOSITION",
+   "statement": "کتاب بخشی مستقل به «چلیپا نویسی» اختصاص می‌دهد و به سطرِ اول تا چهارمِ چلیپا اشاره می‌کند.",
+   "statementEn": "A dedicated section on chalipa (four-line diagonal composition) referring to lines one to four.",
+   "sourceType": "SOURCE_VISUAL",
+   "sourcePages": [
+    29,
+    30,
+    31,
+    32,
+    33
+   ],
+   "evidence": "سرصفحهٔ «چلیپا نویسی» و ارجاع به سطرها در متن",
+   "confidence": 0.7,
+   "status": "PROVISIONAL",
+   "note": "متنِ این صفحات در رزولوشنِ فعلی کاملاً بازخوانی نشده است."
+  },
+  {
+   "parameters": {},
+   "engineMapping": {
+    "layer": "LAYOUT_MODEL",
+    "parameter": "composition"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-COMPOSITION-002",
+   "category": "COMPOSITION",
+   "statement": "کتاب قواعدِ شماره‌دارِ «ترکیب و حسن تشکیل» را در پایان ارائه می‌کند (سومین و چهارمین قاعده صریحاً شماره خورده‌اند).",
+   "statementEn": "Numbered principles of tarkib / hosn-e tashkil are given at the end.",
+   "sourceType": "SOURCE_VISUAL",
+   "sourcePages": [
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    49
+   ],
+   "evidence": "سرصفحه‌ها و عباراتِ «سومین قاعده»، «چهارمین قاعده»",
+   "confidence": 0.65,
+   "status": "PROVISIONAL",
+   "note": "محتوای دقیقِ هر قاعده بازخوانی نشده است."
+  },
+  {
+   "parameters": {},
+   "engineMapping": {
+    "layer": "PRESSURE_MODEL",
+    "parameter": "pressureCurve",
+    "relation": "NOT_SPECIFIED_BY_SOURCE"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-PRESSURE-001",
+   "category": "PRESSURE",
+   "statement": "فشارِ دستِ خطاط بر قلم",
+   "sourceType": "UNKNOWN",
+   "sourcePages": [],
+   "evidence": "کتاب در صفحاتِ بازرسی‌شده هیچ قاعدهٔ صریحی دربارهٔ فشار (سبک/سنگینیِ دست) بیان نمی‌کند. «قوت و ضعف» دربارهٔ ضخامتِ دیده‌شدهٔ خط است، نه نیرو.",
+   "confidence": 0,
+   "status": "UNKNOWN"
+  },
+  {
+   "parameters": {},
+   "engineMapping": {
+    "layer": "STROKE_GENERATOR",
+    "parameter": "velocityInfluence",
+    "relation": "NOT_SPECIFIED_BY_SOURCE"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-VELOCITY-001",
+   "category": "VELOCITY",
+   "statement": "سرعتِ حرکتِ قلم",
+   "sourceType": "UNKNOWN",
+   "sourcePages": [],
+   "evidence": "هیچ قاعده‌ای دربارهٔ سرعت و اثرِ آن یافت نشد. «رانش قلم» به *طریقِ* راندن اشاره دارد، نه به سرعت.",
+   "confidence": 0,
+   "status": "UNKNOWN"
+  },
+  {
+   "parameters": {},
+   "engineMapping": {
+    "layer": "INK_MODEL",
+    "parameter": "inkDeposition",
+    "relation": "NOT_SPECIFIED_BY_SOURCE"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-INK-001",
+   "category": "INK",
+   "statement": "رفتارِ مرکب: چگالی، پخش، تجمع، لبه",
+   "sourceType": "UNKNOWN",
+   "sourcePages": [],
+   "evidence": "کتاب چاپیِ تک‌رنگ است و دربارهٔ رفتارِ فیزیکیِ مرکب چیزی بیان نمی‌کند.",
+   "confidence": 0,
+   "status": "UNKNOWN"
+  },
+  {
+   "parameters": {},
+   "engineMapping": {
+    "layer": "INK_MODEL",
+    "parameter": "overlapDensity",
+    "relation": "NOT_SPECIFIED_BY_SOURCE"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-OVERLAP-001",
+   "category": "OVERLAP",
+   "statement": "رفتارِ هم‌پوشانی و بازگشتِ قلم روی مرکبِ قبلی",
+   "sourceType": "UNKNOWN",
+   "sourcePages": [],
+   "evidence": "در سیاه‌مشق‌ها هم‌پوشانی فراوان دیده می‌شود، ولی کتاب دربارهٔ تغییرِ چگالی/پخش در محلِ هم‌پوشانی قاعده‌ای نمی‌دهد.",
+   "confidence": 0,
+   "status": "UNKNOWN"
+  },
+  {
+   "parameters": {},
+   "engineMapping": {
+    "layer": "STROKE_PATH",
+    "parameter": "strokeOrder",
+    "relation": "NOT_SPECIFIED_BY_SOURCE"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-ORDER-001",
+   "category": "STROKE_ORDER",
+   "statement": "ترتیب و جهتِ حرکتِ قلم در هر حرف",
+   "sourceType": "UNKNOWN",
+   "sourcePages": [],
+   "evidence": "صفحاتِ بازرسی‌شده فلش یا شمارهٔ ترتیبِ حرکت ندارند. ترتیبی که در فازهای قبلِ پروژه برای «ع» استفاده شد از تصویرِ *کاربر* آمده، نه از این کتاب.",
+   "confidence": 0,
+   "status": "UNKNOWN"
+  },
+  {
+   "parameters": {},
+   "engineMapping": {
+    "layer": "NIB_MODEL",
+    "parameter": "nibAngle",
+    "relation": "NOT_SPECIFIED_BY_SOURCE"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-ANGLE-001",
+   "category": "NIB_ORIENTATION",
+   "statement": "مقدارِ عددیِ زاویهٔ نوک نسبت به کرسی",
+   "sourceType": "UNKNOWN",
+   "sourcePages": [],
+   "evidence": "هیچ عددِ زاویه‌ای در صفحاتِ بازرسی‌شده یافت نشد. کتاب «تراش قلم» و «قلم‌گذاری» را نام می‌برد ولی کمیت نمی‌دهد.",
+   "confidence": 0,
+   "status": "UNKNOWN"
+  },
+  {
+   "parameters": {},
+   "engineMapping": {
+    "layer": "STROKE_GENERATOR",
+    "parameter": "startBehavior",
+    "relation": "NOT_SPECIFIED_BY_SOURCE"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-ENTRY-001",
+   "category": "STROKE_ENTRY",
+   "statement": "رفتارِ آغازِ حرکت (ورودِ نازک/ضخیم/تیز)",
+   "sourceType": "UNKNOWN",
+   "sourcePages": [],
+   "evidence": "قاعدهٔ صریحی یافت نشد.",
+   "confidence": 0,
+   "status": "UNKNOWN"
+  },
+  {
+   "parameters": {},
+   "engineMapping": {
+    "layer": "STROKE_GENERATOR",
+    "parameter": "endBehavior",
+    "relation": "NOT_SPECIFIED_BY_SOURCE"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-EXIT-001",
+   "category": "STROKE_EXIT",
+   "statement": "رفتارِ پایانِ حرکت (دم، تیپر، قلاب)",
+   "sourceType": "UNKNOWN",
+   "sourcePages": [],
+   "evidence": "قاعدهٔ صریحی یافت نشد.",
+   "confidence": 0,
+   "status": "UNKNOWN"
+  },
+  {
+   "parameters": {},
+   "engineMapping": {
+    "layer": "LAYOUT_MODEL",
+    "parameter": "scaleInvariance",
+    "relation": "NOT_SPECIFIED_BY_SOURCE"
+   },
+   "variableDomain": "PHYSICAL_CALLIGRAPHY",
+   "id": "RULE-SCALE-001",
+   "category": "SIZE_VARIANTS",
+   "statement": "آیا با تغییرِ اندازهٔ قلم، نسبت‌ها فقط مقیاس می‌شوند؟",
+   "sourceType": "UNKNOWN",
+   "sourcePages": [],
+   "evidence": "کتاب رده‌های قلم را می‌دهد (RULE-PEN-002) و می‌گوید شیوهٔ قدیم «غالباً از قلم مشقی بالا» بر شش‌دانگی بنا شده — که *اشاره‌ای* به وابستگیِ سبک به اندازه است، ولی قاعدهٔ کمّی نمی‌دهد.",
+   "confidence": 0,
+   "status": "UNKNOWN"
+  }
+ ]
+}

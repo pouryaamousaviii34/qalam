@@ -1,0 +1,27 @@
+{
+ "testId": "RULE-STYLE-001",
+ "ruleId": "RULE-STYLE-001",
+ "sourcePages": [
+  5,
+  7
+ ],
+ "input": {
+  "nibWidth": 36
+ },
+ "expected": {
+  "classical": {
+   "dotDang": 6,
+   "dotPullLength": 36
+  },
+  "kalhor": {
+   "dotDang": 5,
+   "dotPullLength": 30
+  }
+ },
+ "tolerance": {
+  "dotPullLength": 0.01
+ },
+ "status": "READY",
+ "requiresEngine": false,
+ "note": "کششِ نقطه در سبک کلهر ۵/۶ پهنای نوک است."
+}

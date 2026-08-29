@@ -1,0 +1,11 @@
+{
+ "testId": "RULE-INK-001",
+ "ruleId": "RULE-INK-001",
+ "sourcePages": [],
+ "input": {},
+ "expected": "NOT_SPECIFIED_BY_SOURCE",
+ "tolerance": null,
+ "status": "SKIPPED",
+ "requiresEngine": false,
+ "note": "منبع قاعده‌ای ارائه نمی‌دهد؛ طبق دستور آزمونی ساخته نشد."
+}

@@ -1,0 +1,20 @@
+{
+ "testId": "RULE-NIB-001",
+ "ruleId": "RULE-NIB-001",
+ "sourcePages": [
+  5
+ ],
+ "input": {
+  "nibWidth": 36
+ },
+ "expected": {
+  "dotSide": 36,
+  "dotShape": "SQUARE"
+ },
+ "tolerance": {
+  "dotSide": 0.01
+ },
+ "status": "READY",
+ "requiresEngine": true,
+ "note": "ضلعِ نقطه باید برابرِ پهنای نوک باشد (شیوهٔ شش‌دانگی)."
+}

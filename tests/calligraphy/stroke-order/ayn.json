@@ -1,0 +1,9 @@
+{
+ "testId": "ORDER-ayn",
+ "letter": "ع",
+ "sourcePages": [],
+ "expected": "NOT_SPECIFIED_BY_SOURCE",
+ "status": "SKIPPED",
+ "requiresEngine": false,
+ "note": "ترتیبِ چهار حرکتیِ استفاده‌شده در فازهای A–D از تصویرِ کاربر آمده، نه از این کتاب. به CONFLICT-004 نگاه کنید."
+}

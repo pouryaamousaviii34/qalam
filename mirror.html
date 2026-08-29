@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>آینه — قلم نی نیستان</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* پنجرهٔ آینه: فقط اثر. هیچ ابزاری دیده نمی‌شود. */
+  html, body { margin: 0; height: 100%; background: #14120f; overflow: hidden; }
+  #scaffold { position: absolute; left: -10000px; top: 0; width: 10px; }
+  #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  #paper {
+    position: relative; flex: 1 1 auto; overflow: hidden;
+    touch-action: none; background: #fff;
+  }
+  #paper canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #paperTex { z-index: 1; }
+  #ink { z-index: 2; }
+  #guide { z-index: 3; }
+  #mirrorBar {
+    position: fixed; z-index: 40; right: 12px; top: 12px;
+    display: flex; gap: 8px; align-items: center;
+    font: 12px/1.4 system-ui, sans-serif; color: #e6ddcb;
+    background: rgba(20,18,15,0.72); padding: 6px 10px; border-radius: 8px;
+    opacity: 0.25; transition: opacity 0.2s;
+  }
+  #mirrorBar:hover { opacity: 1; }
+  #mirrorBar button {
+    font: inherit; cursor: pointer; border: 1px solid #6b6156;
+    background: #262019; color: #e6ddcb; border-radius: 6px; padding: 3px 8px;
+  }
+  #mirrorState { min-width: 8ch; }
+  #hud, #status { display: none; }
+</style>
+</head>
+<body>
+
+<!-- ------------------------------------------------------------------
+     داربستِ کنترل‌ها
+     ------------------------------------------------------------------
+     app.js یک برنامهٔ کاملِ تک‌فایلی است و به شناسه‌های کنترل‌های نوارِ
+     ابزار وابسته است. برای اینکه *همان* موتور و *همان* کدِ رسم در آینه
+     اجرا شود (و خروجی مو‌به‌مو یکی باشد)، به‌جای نوشتنِ رندرِ دوم، همان
+     کنترل‌ها را نامرئی می‌سازیم. مقدارهایشان از پیامِ همگام‌سازی می‌آید.
+     ------------------------------------------------------------------ -->
+<div id="scaffold" aria-hidden="true"></div>
+
+<div id="app">
+  <div id="paper">
+    <canvas id="paperTex"></canvas>
+    <canvas id="ink"></canvas>
+    <canvas id="guide"></canvas>
+    <div id="hud"></div>
+  </div>
+  <div id="status"></div>
+</div>
+
+<div id="mirrorBar">
+  <span id="mirrorState">در انتظار…</span>
+  <button id="mirrorBg" title="زمینهٔ آینه: سفید یا همان کاغذِ پنجرهٔ اصلی">زمینه: سفید</button>
+  <button id="mirrorFit" title="بزرگ‌نمایی تا اندازهٔ پنجره">جا‌دادن</button>
+</div>
+
+<script>
+/* داربست را *پیش از* app.js می‌سازیم و پرچمِ حالتِ آینه را می‌گذاریم. */
+window.__QALAM_MIRROR = true;
+(function () {
+  const host = document.getElementById('scaffold');
+  const RANGES = [
+    ['size', 1, 40, 1, 4], ['nibRatio', 2, 6, 0.1, 2.0],
+    ['nibThick', 0.2, 8, 0.05, 1.0], ['pressure', 0.1, 2, 0.05, 1],
+    ['opacity', 10, 100, 1, 100], ['angle', 0, 180, 1, 109],
+    ['smooth', 0, 0.95, 0.05, 0.55], ['bgVeil', 0, 0.9, 0.05, 0.35],
+  ];
+  const SPANS = ['sizeVal', 'nibRatioVal', 'nibThickVal', 'pressureVal',
+                 'angleVal', 'smoothVal', 'opacityVal', 'bgVeilVal'];
+  const BUTTONS = ['lightBtn', 'paperDaftari', 'paperGloss', 'paperTraditional',
+                   'paperTazhib', 'paperKashi', 'paperImageBtn', 'clear', 'undo',
+                   'eraserBtn', 'save', 'twistMode', 'motionMode', 'dynamicMode',
+                   'vertBtn', 'dbgToggle', 'gridBtn', 'dbgClose', 'mirrorBtn',
+                   'tool_reed', 'tool_pencil', 'tool_brush', 'tool_marker',
+                   'tool_water', 'tool_ballpoint'];
+  const TUNE_RANGES = ['t_pexp', 't_psm', 't_minc', 't_heel', 't_spf', 't_minsp',
+    't_maxev', 't_vink', 't_vw', 't_floor', 't_pool', 't_start', 't_tail',
+    't_tilt', 't_tiltc', 't_round', 't_mm',
+    'k_min', 'k_max', 'k_dz', 'k_sm', 'k_exp'];
+  const DBG_TEXT = ['d_praw','d_pnorm','d_pfilt','d_pmap','d_psup','d_cw','d_ct',
+    'd_co','d_ap','d_nib','d_dir','d_tilt','d_vel','d_ink','d_dens','d_dwell',
+    'd_fps','d_ft','d_eps','d_sps','d_bpk','d_bov','d_clamp','d_src',
+    'c_ptype','c_pressure','c_tilt','c_orient','c_twist','c_tang','c_raw',
+    'c_coal','c_sph','c_secure','c_src','c_ostate','c_ofrom',
+    'd_alt','d_az','d_tw','d_lean','d_leandir','d_rel','d_pp','d_uprof',
+    'i_res','i_flow','i_dep','i_pool','i_spread','i_abs','k_obs','k_state',
+    'b_praw','b_pnorm','b_pfilt','b_pmap'];
+
+  for (const [id, mn, mx, st, v] of RANGES) {
+    const el = document.createElement('input');
+    el.type = 'range'; el.id = id;
+    el.min = String(mn); el.max = String(mx); el.step = String(st);
+    el.value = String(v);
+    host.appendChild(el);
+  }
+  for (const id of SPANS) {
+    const e = document.createElement('span'); e.id = id; host.appendChild(e);
+  }
+  const sel = document.createElement('select');
+  sel.id = 'nib';
+  for (const v of ['flat', 'sharp', 'round']) {
+    const o = document.createElement('option'); o.value = v; o.textContent = v;
+    sel.appendChild(o);
+  }
+  host.appendChild(sel);
+  const col = document.createElement('input');
+  col.type = 'color'; col.id = 'color'; col.value = '#2a1d10';
+  host.appendChild(col);
+  const ar = document.createElement('input');
+  ar.type = 'checkbox'; ar.id = 'autoReturn';
+  host.appendChild(ar);
+  const fi = document.createElement('input');
+  fi.type = 'file'; fi.id = 'paperImage';
+  host.appendChild(fi);
+  const ex = document.createElement('select');
+  ex.id = 'exportScale';
+  for (const v of ['1', '2', '3', '4']) {
+    const o = document.createElement('option'); o.value = v; o.textContent = v;
+    if (v === '2') o.selected = true;
+    ex.appendChild(o);
+  }
+  host.appendChild(ex);
+  for (const id of BUTTONS) {
+    const b = document.createElement('button'); b.id = id; b.textContent = id;
+    if (id === 'paperDaftari' || id === 'twistMode' || id === 'vertBtn') {
+      b.className = 'active';
+    }
+    host.appendChild(b);
+  }
+  const dbg = document.createElement('div');
+  dbg.id = 'dbg'; dbg.hidden = true;
+  for (const id of TUNE_RANGES) {
+    const el = document.createElement('input');
+    el.type = 'range'; el.id = id; el.min = '0'; el.max = '100'; el.step = '0.01';
+    dbg.appendChild(el);
+    const b = document.createElement('b'); b.id = id + 'Val'; dbg.appendChild(b);
+  }
+  for (const id of ['t_reset', 'k_auto', 'k_save', 'k_reset']) {
+    const b = document.createElement('button'); b.id = id; dbg.appendChild(b);
+  }
+  for (const id of DBG_TEXT) {
+    const e = document.createElement('b'); e.id = id; dbg.appendChild(e);
+  }
+  for (const id of ['d_curve', 'd_nibview']) {
+    const c = document.createElement('canvas');
+    c.id = id; c.width = 150; c.height = 90;
+    dbg.appendChild(c);
+  }
+  host.appendChild(dbg);
+})();
+</script>
+
+<!-- ==================================================================
+     ★ قانونِ غیرقابلِ مذاکرهٔ Monitor 2
+     ------------------------------------------------------------------
+     پنجرهٔ آینه عمداً فایل‌های لایهٔ «دستیارِ هوشمند» را بارگذاری *نمی‌کند*.
+     دلیل ساختاری است، نه سلیقه‌ای:
+
+       • تصویرِ مرجع و لایهٔ Debug هرگز نباید این‌جا دیده شوند. با نبودنِ
+         reference-analyzer.js امکانِ تحلیل/رسمِ مرجع در این پنجره وجود
+         *ندارد* — نه اینکه فقط خاموش باشد.
+       • استروکِ نهایی از قبل روی پنجرهٔ اصلی اصلاح و بازسازی شده و
+         به‌صورتِ رکورد فرستاده می‌شود. اگر لایهٔ دستیار این‌جا هم اجرا
+         می‌شد، همان هندسه دو بار اصلاح می‌شد و خروجیِ دو مانیتور از هم
+         جدا می‌افتاد.
+
+     app.js با ندیدنِ window.QalamAssistUI خودش به مسیرِ «بدونِ دستیار»
+     می‌رود، پس هیچ چیزی نمی‌شکند.
+     ================================================================== -->
+<script src="stylus.js"></script>
+<script src="qalam-engine.js"></script>
+<script src="app.js"></script>
+
+<script>
+/* نوارِ کوچکِ آینه: وضعیت، زمینه، و جا‌دادن. */
+(function () {
+  const T = window.__qalamTest;
+  const M = window.__qalamMirror;
+  const st = document.getElementById('mirrorState');
+  const bgBtn = document.getElementById('mirrorBg');
+  let white = true;
+  let seen = 0;
+
+  // زمینهٔ پیش‌فرضِ آینه: سفیدِ ساده
+  const paperBtnOf = k => document.getElementById(
+    { daftari: 'paperDaftari', gloss: 'paperGloss', traditional: 'paperTraditional',
+      tazhib: 'paperTazhib', kashi: 'paperKashi' }[k]);
+  function applyWhite() {
+    if (window.__qalamPaper) window.__qalamPaper.setPaper(white ? 'blank' : 'daftari');
+    bgBtn.textContent = 'زمینه: ' + (white ? 'سفید' : 'کاغذ');
+  }
+  applyWhite();
+  bgBtn.onclick = () => { white = !white; applyWhite(); };
+
+  document.getElementById('mirrorFit').onclick = () => {
+    // بومِ آینه همیشه اندازهٔ پنجره است؛ این دکمه فقط برای اطمینان
+    window.dispatchEvent(new Event('resize'));
+  };
+
+  // شمارشِ پیام‌ها برای نمایشِ وضعیت
+  const orig = window.__qalamMirrorApply;
+  if (orig) {
+    window.__qalamMirrorApply = function (msg) {
+      orig(msg);
+      if (msg && msg.t) {
+        seen++;
+        st.textContent = 'متصل · ' + (T ? T.strokes.length : 0) + ' استروک';
+      }
+    };
+    window.addEventListener('message', e => {
+      if (e.data && e.data.t) {
+        seen++;
+        st.textContent = 'متصل · ' + (T ? T.strokes.length : 0) + ' استروک';
+      }
+    });
+  }
+  setTimeout(() => {
+    if (!seen) {
+      st.textContent = location.protocol === 'file:'
+        ? 'file:// — سرورِ محلی لازم است'
+        : 'در انتظارِ پنجرهٔ اصلی…';
+    }
+  }, 2500);
+})();
+</script>
+</body>
+</html>

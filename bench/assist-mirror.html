@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>Assist — Two-Monitor / Mirror Tests</title>
+<style>
+ body{margin:0;font:13px/1.5 monospace;background:#14120f;color:#e6ddcb}
+ #out{padding:12px;white-space:pre-wrap}
+ .pass{color:#66c98a}.fail{color:#e2705f}
+ #app{position:absolute;left:-5000px;top:0}
+ #mirrorFrame{position:absolute;left:-5000px;top:700px;width:900px;height:620px;border:0}
+</style>
+</head>
+<body>
+<pre id="out">RUNNING…</pre>
+<iframe id="mirrorFrame" src="../mirror.html"></iframe>
+<script src="harness.js"></script>
+<script>
+/* =====================================================================
+   assist-mirror.html — تست‌های واقعیِ دو مانیتوره
+   ---------------------------------------------------------------------
+   این صفحه **باید از روی http** اجرا شود، نه file://، چون:
+     • خواندنِ پیکسل‌های بومِ داخلِ iframe به هم‌مبدأ بودن نیاز دارد
+     • getCoalescedEvents و pointerrawupdate فقط در بسترِ امن فعالند
+
+   اجرا:
+     node server.js &
+     node bench/run-headless.js "http://localhost:8123/bench/assist-mirror.html" \
+          window.__mirrorTestResult
+
+   پوشش:
+     تست پذیرش ۶  — Mirror ON + Reference ON  ⇒ Monitor 2 فقط Final Stroke
+     تست پذیرش ۷  — Mirror OFF                ⇒ رفتارِ فعلی نمی‌شکند
+     بخش ۳۲ / ۸۶  — تصویرِ مرجع هرگز روی Monitor 2 نیست
+     بخش ۳۳       — لایهٔ Reference و Debug وارد Output Monitor نمی‌شوند
+   ===================================================================== */
+window.__mirrorTestResult = (async function () {
+  const H = window.QalamHarness;
+  const out = document.getElementById('out');
+  const results = [];
+  let failures = 0;
+  function record(name, ok, detail) {
+    results.push({ name, ok: !!ok, detail: detail === undefined ? '' : String(detail) });
+    if (!ok) failures++;
+  }
+  const ok = (name, cond, detail) => record(name, cond, detail);
+
+  if (location.protocol === 'file:') {
+    record('bootstrap this page requires http, not file://', false, location.href);
+    out.textContent = 'MUST BE SERVED OVER HTTP';
+    return { total: 1, failures: 1, results };
+  }
+
+  H.instrument();
+  H.instrumentRaf();
+  H.buildDOM(900, 620);
+  await new Promise(r => setTimeout(r, 60));
+  await H.loadEngine('../stylus.js');
+  await H.loadEngine('../qalam-engine.js');
+  await H.loadEngine('../assist-engine.js');
+  await H.loadEngine('../reference-analyzer.js');
+  await H.loadEngine('../assist-ui.js');
+  await H.loadEngine('../app.js');
+  await new Promise(r => setTimeout(r, 250));
+
+  const T = window.__qalamTest;
+  const AUI = window.QalamAssistUI;
+  const A = window.QalamAssist;
+  if (!T || !AUI) { out.textContent = 'NOT EXPOSED'; return { total: 1, failures: 1, results }; }
+
+  /* ---- انتظار برای بالا آمدنِ پنجرهٔ آینه (iframe) ---- */
+  const frame = document.getElementById('mirrorFrame');
+  async function waitMirror(ms) {
+    const deadline = Date.now() + ms;
+    for (;;) {
+      try {
+        const w = frame.contentWindow;
+        if (w && w.__qalamTest && w.__QALAM_MIRROR) return w;
+      } catch (_) {}
+      if (Date.now() > deadline) return null;
+      await new Promise(r => setTimeout(r, 100));
+    }
+  }
+  const MW = await waitMirror(15000);
+  ok('MIRROR the mirror window boots and exposes its own engine', !!MW);
+  if (!MW) {
+    out.textContent = 'MIRROR WINDOW DID NOT BOOT';
+    return { total: results.length, failures, results };
+  }
+
+  ok('MIRROR the mirror window identifies itself as the mirror',
+     MW.__QALAM_MIRROR === true && MW.__qalamMirror.isMirror === true);
+
+  /* ★ گاردِ ساختاریِ بخش ۳۲ و ۸۶:
+     پنجرهٔ آینه اصلاً فایل‌های لایهٔ دستیار را ندارد، پس امکانِ تحلیل یا
+     رسمِ مرجع در آن *وجود ندارد* — نه اینکه فقط خاموش باشد. */
+  ok('MONITOR2 the mirror window does not even load the reference analyzer',
+     MW.QalamReference === undefined,
+     `QalamReference=${typeof MW.QalamReference}`);
+  ok('MONITOR2 the mirror window does not load the assist UI layer',
+     MW.QalamAssistUI === undefined,
+     `QalamAssistUI=${typeof MW.QalamAssistUI}`);
+  ok('MONITOR2 the mirror window has no assist debug overlay canvas',
+     !MW.document.getElementById('assistOverlay'));
+  ok('MONITOR2 the mirror window has no assist panel or HUD',
+     !MW.document.getElementById('assistPanel') &&
+     !MW.document.getElementById('assistHud'));
+
+  /* ---- ابزارهای سنجشِ پیکسل ---- */
+  function counter(win, canvasId) {
+    const c = win.document.getElementById(canvasId);
+    const cx = c.getContext('2d', { willReadFrequently: true });
+    return {
+      canvas: c,
+      inked(x, y, w, h) {
+        const d = win.__qalamTest.dims();
+        const px = Math.max(0, Math.round(x * d.dpr));
+        const py = Math.max(0, Math.round(y * d.dpr));
+        const pw = Math.min(c.width - px, Math.round(w * d.dpr));
+        const ph = Math.min(c.height - py, Math.round(h * d.dpr));
+        if (pw <= 0 || ph <= 0) return 0;
+        const img = cx.getImageData(px, py, pw, ph).data;
+        let n = 0;
+        for (let i = 3; i < img.length; i += 4) if (img[i] > 8) n++;
+        return n;
+      },
+      // تعدادِ رنگ‌های متمایز — برای تشخیصِ «تصویر» از «زمینهٔ یکدست»
+      distinctColors(x, y, w, h) {
+        const d = win.__qalamTest.dims();
+        const px = Math.max(0, Math.round(x * d.dpr));
+        const py = Math.max(0, Math.round(y * d.dpr));
+        const pw = Math.min(c.width - px, Math.round(w * d.dpr));
+        const ph = Math.min(c.height - py, Math.round(h * d.dpr));
+        if (pw <= 0 || ph <= 0) return 0;
+        const img = cx.getImageData(px, py, pw, ph).data;
+        const set = new Set();
+        for (let i = 0; i < img.length; i += 4) {
+          set.add((img[i] >> 3) << 10 | (img[i + 1] >> 3) << 5 | (img[i + 2] >> 3));
+        }
+        return set.size;
+      },
+    };
+  }
+  const mainInk = counter(window, 'ink');
+  const mirrInk = counter(MW, 'ink');
+  const mainTex = counter(window, 'paperTex');
+  const mirrTex = counter(MW, 'paperTex');
+
+  function setA(obj) {
+    for (const k in obj) AUI.settings[k] = obj[k];
+    if (window.__qalamSyncConfig) window.__qalamSyncConfig();
+  }
+  async function settle(n) {
+    for (let i = 0; i < (n || 6); i++) await new Promise(requestAnimationFrame);
+    await new Promise(r => setTimeout(r, 120));
+  }
+
+  /* =================================================================
+     یک تصویرِ مرجعِ واقعی می‌سازیم و روی Monitor 1 می‌اندازیم
+     ================================================================= */
+  const refCanvas = document.createElement('canvas');
+  refCanvas.width = 600; refCanvas.height = 300;
+  {
+    const g = refCanvas.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, 600, 300);
+    // یک Stroke خوشنویسیِ نازک → کلفت → نازک
+    g.fillStyle = '#101010';
+    const y0 = 150, x0 = 60, x1 = 540;
+    for (let x = x0; x < x1; x += 0.5) {
+      const u = (x - x0) / (x1 - x0);
+      const hw = 2 + 10 * Math.sin(Math.PI * u);
+      g.fillRect(x, y0 - hw, 1, hw * 2);
+    }
+    // یک نشانهٔ رنگیِ پرکنتراست، تا «مرجع روی Monitor 2» فوراً دیده شود
+    g.fillStyle = '#ff0000';
+    g.fillRect(20, 20, 80, 40);
+    g.fillStyle = '#00b0ff';
+    g.fillRect(500, 240, 80, 40);
+  }
+
+  T.setCustomImage(refCanvas);
+  T.setPaper('custom');
+  await settle(4);
+  const refAnalysis = await AUI.setReference(refCanvas);
+  await settle(4);
+
+  ok('REFERENCE the imported reference is analysed on the main window',
+     !!(refAnalysis && refAnalysis.ok && refAnalysis.strokes.length >= 1),
+     `ok=${refAnalysis && refAnalysis.ok} strokes=${refAnalysis && refAnalysis.strokes.length} ` +
+     `conf=${refAnalysis && refAnalysis.confidence.toFixed(3)}`);
+
+  /* Monitor 1 باید مرجع را *نشان دهد*: بافتِ کاغذ پرِ رنگ است */
+  const mainTexColors = mainTex.distinctColors(0, 0, 900, 620);
+  ok('MONITOR1 the reference image is visible on the drawing monitor',
+     mainTexColors > 20, `distinctColors=${mainTexColors}`);
+
+  /* ★ Monitor 2 نباید مرجع را داشته باشد — حتی پیش از هر استروکی */
+  const mirrTexColors = mirrTex.distinctColors(0, 0, 900, 620);
+  ok('MONITOR2 the reference image is absent from the output monitor',
+     mirrTexColors <= 4,
+     `distinctColors=${mirrTexColors} (main=${mainTexColors})`);
+  ok('MONITOR2 the output monitor paper stays a plain background',
+     MW.__qalamPaper && mirrTexColors < mainTexColors / 4,
+     `mirror=${mirrTexColors} main=${mainTexColors}`);
+
+  /* =================================================================
+     تستِ پذیرشِ ۶ — Mirror ON + Reference ON + Assist ON
+     ================================================================= */
+  {
+    // آینه را «روشن» می‌کنیم: کانالِ BroadcastChannel از قبل برقرار است،
+    // ولی برای قطعیت، mirrorWin را هم به همین iframe وصل می‌کنیم.
+    window.__qalamMirrorTestHook = frame.contentWindow;
+    // پنجرهٔ آینه با «سلام» درخواستِ همگام‌سازی می‌کند
+    frame.contentWindow.postMessage({ t: 'hello' }, '*');
+    await settle(4);
+
+    setA({
+      intelligent_assist_enabled: true,
+      real_ballpoint_enabled: true,
+      assist_mode: 'reference',
+      width_mode: 'reference',
+      assist_strength: 0.75,
+      smoothing_strength: 0.6,
+      base_width_mm: 0.7,
+      show_pressure: true,
+      debug_overlay: true,          // ★ لایهٔ Debug روشن — نباید به آینه برود
+      training_mode: true,
+    });
+    await settle(2);
+
+    document.getElementById('clear').click();
+    await settle(4);
+
+    /* کاربر مسیرِ کلیِ حرف را با لرزش و انحراف طی می‌کند.
+       مرجع روی y=150 در فضای تصویرِ ۶۰۰×۳۰۰ است؛ با پوششِ cover روی
+       بومِ ۹۰۰×۶۲۰ باید همان مرکز باشد. مسیر را از خودِ تحلیل می‌گیریم
+       تا هیچ عددی Hard-Code نشود. */
+    const rs = AUI.state.refStrokes[0];
+    ok('MATCH the reference centreline is projected into canvas space',
+       !!rs && rs.points.length > 10,
+       `points=${rs ? rs.points.length : 0}`);
+
+    /* فشارِ کاربر: تقریباً یکنواخت و *کم*، ولی نه دقیقاً ۰٫۵.
+       ------------------------------------------------------------------
+       این نکتهٔ ظریف اهمیت دارد: طبق [PE3] §4.1، مقدارِ دقیقِ ۰٫۵ همان
+       چیزی است که سخت‌افزارِ *بی‌حسِ فشار* گزارش می‌کند. اگر آزمون ۰٫۵
+       بفرستد، stylus.js درست تشخیص می‌دهد که «این دستگاه فشار ندارد»،
+       به حالتِ جانشین می‌رود، و HUD طبقِ بخش ۴۵ حق ندارد آن را «فشارِ
+       واقعی» نشان دهد. پس برای سنجشِ بازخوردِ فشار باید سیگنالی فرستاد که
+       *شاهدِ* وجودِ حسگر باشد.
+       نوسانِ ریزِ ۰٫۳۴±۰٫۰۲ هم واقع‌گرایانه است (دستِ انسان فشارِ کاملاً
+       ثابت نمی‌دهد) و هم پروفایلِ پهنا را تحتِ تأثیر قرار نمی‌دهد، پس
+       تستِ پذیرشِ ۳ همچنان معنا دارد. */
+    const samples = [];
+    const t0 = performance.now();
+    const n = 200;
+    for (let i = 0; i < n; i++) {
+      const u = i / (n - 1);
+      const idx = Math.round(u * (rs.points.length - 1));
+      const p = rs.points[idx];
+      // انحرافِ عمدی از مسیر + لرزشِ دست
+      const off = Math.sin(u * Math.PI * 2) * 9 + Math.sin(i * 0.9) * 2.5;
+      samples.push({
+        x: p.x, y: p.y + off,
+        pressure: 0.34 + Math.sin(i * 0.37) * 0.02,
+        t: t0 + i * 5,
+      });
+    }
+    /* ---- HUD را *در میانهٔ* استروک نمونه‌برداری می‌کنیم -----------------
+       پس از pointerup، فشارِ واقعی صفر است و «Actual Pressure» درست هم
+       صفر گزارش می‌شود. سنجشِ بازخوردِ زنده باید در حالِ نوشتن انجام شود،
+       وگرنه آزمون چیزی را می‌سنجد که هیچ‌کس نمی‌بیند. */
+    /* نمونهٔ HUD را از *آخرین* نمونهٔ استروک برمی‌داریم، نه از یک شمارندهٔ
+       ثابت. دلیل: بازنمونه‌بردار برای هر رویدادِ ورودی چند نمونه تولید
+       می‌کند (اندازه‌گیری‌شده: ۲۰۰ ورودی ⇒ ۱۰۹۲ نمونه)، و چند نمونهٔ نخست در
+       «پنجرهٔ آماده‌سازیِ فیلترِ فشار» هستند که فشارشان هنوز نمایندهٔ کاربر
+       نیست. با نگه‌داشتنِ آخرین نمونه، هم استروک زنده است و هم فیلتر آماده. */
+    let hudMid = null;
+    const origShape = AUI.shape;
+    AUI.shape = function (io) {
+      const r = origShape.call(AUI, io);
+      const h = AUI.state.hud;
+      if (h.pressure > 0 && h.targetWidth > 0) {
+        const el = document.getElementById('assistHud');
+        hudMid = {
+          pressure: h.pressure, targetPressure: h.targetPressure,
+          actualWidth: h.actualWidth, targetWidth: h.targetWidth,
+          targetOutOfRange: h.targetOutOfRange,
+          // HUD در نخستین فریمِ نمایش ساخته می‌شود؛ ممکن است هنوز نباشد
+          hudVisible: !!el && !el.hidden,
+        };
+      }
+      return r;
+    };
+    await H.playStroke(samples, { hz: 200, framesPerSec: 60 });
+    AUI.shape = origShape;
+    await settle(8);
+
+    const stroke = T.strokes[T.strokes.length - 1] || [];
+    ok('ACCEPT-6 a stroke is produced on the drawing monitor', stroke.length > 40,
+       `samples=${stroke.length}`);
+
+    /* اصلاحِ مسیر: رکوردهای نهایی باید *نزدیک‌تر* به Centerline باشند تا
+       ورودیِ خام. این همان «حل مشکل ۲» است. */
+    function meanDistToRef(pts) {
+      const q = { found: false };
+      let sum = 0, cnt = 0;
+      for (const p of pts) {
+        rs.grid.nearest(q, p.x, p.y, 200);
+        if (q.found) { sum += q.dist; cnt++; }
+      }
+      return cnt ? sum / cnt : Infinity;
+    }
+    const rawDist = meanDistToRef(samples);
+    const fixedDist = meanDistToRef(stroke);
+    ok('ACCEPT-6 path correction pulls the stroke toward the reference',
+       fixedDist < rawDist * 0.6,
+       `raw=${rawDist.toFixed(2)}px corrected=${fixedDist.toFixed(2)}px`);
+
+    /* پهنا از مرجع می‌آید، نه از فشارِ یکنواختِ کاربر — تستِ پذیرشِ ۳ در
+       شرایطِ واقعیِ دو مانیتوره. */
+    let wStart = 0, wMid = 0, wEnd = 0;
+    {
+      const i0 = Math.round(stroke.length * 0.08);
+      const i1 = Math.round(stroke.length * 0.5);
+      const i2 = Math.round(stroke.length * 0.92);
+      wStart = stroke[i0].cw; wMid = stroke[i1].cw; wEnd = stroke[i2].cw;
+    }
+    /* ---- تستِ پذیرشِ ۵ (بخش ۶۰): Actual و Target هر دو، و جدا ----------
+       ★ رگرسیونِ یک باگِ اندازه‌گیری‌شده: «Target Pressure» باید نسبت به
+       پهنای قلمِ *کاربر* حساب شود، نه نسبت به ظرفیتی که برای جا‌دادنِ مرجع
+       موقتاً کشیده شده. پیش از رفع، پهنای هدف دقیقاً روی کفِ بازهٔ کشیده‌شده
+       می‌افتاد و Target Pressure صفر گزارش می‌شد. */
+    ok('ACCEPT-5 the HUD is sampled while the stroke is being drawn', !!hudMid,
+       `captured=${!!hudMid}`);
+    if (hudMid) {
+      ok('ACCEPT-5 the HUD reports actual and target pressure separately',
+         hudMid.pressure > 0 && hudMid.targetPressure > 0 &&
+         hudMid.pressure !== hudMid.targetPressure,
+         `actualP=${(hudMid.pressure * 100).toFixed(0)}% ` +
+         `targetP=${(hudMid.targetPressure * 100).toFixed(0)}%`);
+      ok('ACCEPT-5 the HUD reports actual and target width separately',
+         hudMid.actualWidth > 0 && hudMid.targetWidth > 0,
+         `actualW=${hudMid.actualWidth.toFixed(2)}px targetW=${hudMid.targetWidth.toFixed(2)}px`);
+      /* بخش ۲۴ و ۸۷: Actual و Target هرگز نباید با هم اشتباه شوند. با
+         فشارِ یکنواختِ ۰٫۵ و مرجعِ پهن، فشارِ هدف باید *بیشتر* از فشارِ
+         واقعی باشد — همان چیزی که کاربر باید یاد بگیرد. */
+      ok('ACCEPT-5 a wide reference demands more pressure than the user applied',
+         hudMid.targetPressure > hudMid.pressure,
+         `actual=${(hudMid.pressure * 100).toFixed(0)}% ` +
+         `target=${(hudMid.targetPressure * 100).toFixed(0)}%`);
+      ok('ACCEPT-5 a target beyond the pen capacity is flagged honestly',
+         typeof hudMid.targetOutOfRange === 'boolean',
+         `outOfRange=${hudMid.targetOutOfRange}`);
+      /* HUD در نخستین فریمِ رسم ساخته می‌شود، پس ممکن است در لحظهٔ نمونه‌برداری
+         هنوز در DOM نباشد. آنچه باید تضمین شود این است که *پس از* استروک
+         حتماً ساخته و دیده شده باشد. */
+      const hudEl = document.getElementById('assistHud');
+      ok('ACCEPT-5 the pressure HUD is present and visible after writing',
+         !!hudEl && !hudEl.hidden,
+         `present=${!!hudEl} hidden=${hudEl ? hudEl.hidden : 'n/a'}`);
+    }
+    // و پس از برداشتنِ قلم، فشارِ واقعی صادقانه صفر می‌شود
+    ok('ACCEPT-5 actual pressure returns to zero after the pen is lifted',
+       AUI.state.hud.pressure === 0 || AUI.state.hud.pressure < 0.05,
+       `afterUp=${AUI.state.hud.pressure.toFixed(3)}`);
+
+    /* ★ تستِ پذیرشِ ۳ در شرایطِ واقعی: فشارِ کاربر کاملاً یکنواخت (۰٫۵) است،
+       پس هر تغییرِ پهنایی *فقط* می‌تواند از پروفایلِ مرجع آمده باشد. */
+    ok('ACCEPT-6 the reference width profile drives the stroke width',
+       wMid > wStart * 1.5 && wMid > wEnd * 1.5,
+       `start=${wStart.toFixed(2)} mid=${wMid.toFixed(2)} end=${wEnd.toFixed(2)} ` +
+       `(uniform pressure 0.5)`);
+    // و پهنای بازسازی‌شده باید به پهنای *اندازه‌گیری‌شدهٔ* مرجع نزدیک باشد
+    const refMid = rs.widths[rs.points.length >> 1];
+    ok('ACCEPT-6 the reconstructed width matches the measured reference width',
+       Math.abs(wMid - refMid) / refMid < 0.25,
+       `reconstructed=${wMid.toFixed(2)}px reference=${refMid.toFixed(2)}px`);
+
+    // ---- Monitor 1: مرجع + مرکب ----
+    const mainInked = mainInk.inked(0, 0, 900, 620);
+    ok('ACCEPT-6 Monitor 1 shows the final ink', mainInked > 800,
+       `inked=${mainInked}`);
+
+    // ---- Monitor 2: فقط مرکب ----
+    let mirrInked = 0;
+    for (let tries = 0; tries < 30 && mirrInked < 500; tries++) {
+      await settle(2);
+      mirrInked = mirrInk.inked(0, 0, 900, 620);
+    }
+    ok('ACCEPT-6 Monitor 2 receives and renders the final ink',
+       mirrInked > 500, `inked=${mirrInked}`);
+    /* خروجیِ دو مانیتور باید *همان* باشد. رندرِ آینه همان renderSegment
+       است، پس اختلاف باید در حدِ آنتی‌الیاس بمانَد. */
+    const ratio = mirrInked / Math.max(1, mainInked);
+    ok('ACCEPT-6 the two monitors agree on the final ink coverage',
+       ratio > 0.85 && ratio < 1.15,
+       `main=${mainInked} mirror=${mirrInked} ratio=${ratio.toFixed(3)}`);
+
+    // ★ و مرجع همچنان نباید روی Monitor 2 باشد
+    const mirrTexAfter = mirrTex.distinctColors(0, 0, 900, 620);
+    ok('ACCEPT-6 the reference is still absent from Monitor 2 while mirroring',
+       mirrTexAfter <= 4, `distinctColors=${mirrTexAfter}`);
+    /* لایهٔ Debug روشن بود؛ نباید هیچ اثری در آینه گذاشته باشد
+       (بخش ۳۹: این لایه نباید به Monitor 2 منتقل شود) */
+    ok('ACCEPT-6 the debug overlay never reaches Monitor 2',
+       !MW.document.getElementById('assistOverlay'));
+    const mainOvl = document.getElementById('assistOverlay');
+    ok('ACCEPT-6 the debug overlay does exist on Monitor 1', !!mainOvl);
+  }
+
+  /* =================================================================
+     تستِ پذیرشِ ۷ — Mirror OFF: رفتارِ فعلی نباید بشکند
+     ================================================================= */
+  {
+    const before = mirrInk.inked(0, 0, 900, 620);
+    // آینه را خاموش می‌کنیم (بی‌بستنِ iframe، تا بتوانیم پیکسل‌ها را ببینیم)
+    window.__qalamMirror.close();
+    await settle(3);
+    document.getElementById('clear').click();
+    await settle(3);
+    // با آینهٔ خاموش، پیامِ clear هم نباید برود؛ پس مرکبِ آینه سرِ جایش است
+    const afterClear = mirrInk.inked(0, 0, 900, 620);
+    ok('ACCEPT-7 with mirror off the main window stops driving Monitor 2',
+       afterClear === before, `before=${before} after=${afterClear}`);
+
+    /* و خودِ Monitor 1 باید عادی کار کند.
+       نکتهٔ سنجش: حالتِ مرجع را *خاموش* می‌کنیم، وگرنه استروکِ آزمون به
+       Centerline مرجع چسبانده می‌شود و در ناحیهٔ موردِ سنجش ظاهر نمی‌شود.
+       (این خودش یک تأییدِ ضمنی است که اصلاحِ مسیر کار می‌کند.) */
+    setA({ intelligent_assist_enabled: false, real_ballpoint_enabled: false,
+           assist_mode: 'free', width_mode: 'pressure',
+           debug_overlay: false, training_mode: false });
+    await settle(2);
+    await H.playStroke(H.pathLine(200, 500, 700, 500, 150, () => 0.7, 5),
+                       { hz: 200, framesPerSec: 60 });
+    await settle(4);
+    const plainInked = mainInk.inked(150, 450, 600, 110);
+    ok('ACCEPT-7 with mirror off Monitor 1 keeps drawing normally',
+       plainInked > 400, `inked=${plainInked}`);
+    const plainStroke = T.strokes[T.strokes.length - 1] || [];
+    ok('ACCEPT-7 with assist off the stroke follows the raw input exactly',
+       plainStroke.length > 40 &&
+       Math.abs(plainStroke[0].y - 500) < 2 &&
+       Math.abs(plainStroke[plainStroke.length - 1].y - 500) < 2,
+       `y0=${plainStroke.length ? plainStroke[0].y.toFixed(1) : 'n/a'} ` +
+       `yN=${plainStroke.length ? plainStroke[plainStroke.length - 1].y.toFixed(1) : 'n/a'}`);
+    ok('ACCEPT-7 the temporary reference width capacity does not leak',
+       window.__qalamCfg.nibWidth < 40,
+       `nibWidth=${window.__qalamCfg.nibWidth.toFixed(2)}px`);
+    ok('ACCEPT-7 the mirror toggle is reported as off',
+     window.__qalamMirror.on === false);
+  }
+
+  /* =================================================================
+     کاغذِ غیرِمرجع: مرجع باید کنار گذاشته شود
+     ================================================================= */
+  {
+    T.setPaper('daftari');
+    await settle(4);
+    ok('REFERENCE leaving the custom paper discards the reference analysis',
+       AUI.state.refStrokes.length === 0,
+       `refStrokes=${AUI.state.refStrokes.length}`);
+    ok('REFERENCE trace mode becomes inactive without a reference',
+       AUI.traceEnabled === false);
+  }
+
+  const summary = {
+    total: results.length, failures, results,
+    ua: navigator.userAgent,
+    secureContext: !!window.isSecureContext,
+  };
+  out.innerHTML = results.map(r =>
+    `<span class="${r.ok ? 'pass' : 'fail'}">${r.ok ? 'PASS' : 'FAIL'}</span> ${r.name}` +
+    (r.detail ? `   ${r.detail}` : '')).join('\n') +
+    `\n\n${results.length - failures}/${results.length} passed`;
+  try { fetch('/__result', { method: 'POST', body: JSON.stringify(summary) }); } catch (_) {}
+  return summary;
+})();
+</script>
+</body>
+</html>

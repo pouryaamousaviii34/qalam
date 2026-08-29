@@ -1,0 +1,20 @@
+{
+ "testId": "RULE-STYLE-002",
+ "ruleId": "RULE-STYLE-002",
+ "sourcePages": [
+  7
+ ],
+ "input": {},
+ "expected": {
+  "variablesPresentInEngine": [
+   "nibGeometry",
+   "nibOrientation",
+   "strokeDirection",
+   "baseline"
+  ]
+ },
+ "tolerance": null,
+ "status": "READY",
+ "requiresEngine": false,
+ "note": "آزمونِ حضورِ متغیرها، نه مقدارشان."
+}

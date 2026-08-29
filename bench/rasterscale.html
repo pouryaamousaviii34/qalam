@@ -1,0 +1,160 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>raster scale</title></head>
+<body><div id="app"></div><pre id="o">…</pre>
+<script src="harness.js"></script>
+<script src="../labs/lab.js"></script>
+<script>
+/* =====================================================================
+   PHASE C / PART 1+3 — جداکردنِ «عرضِ هندسی» از «عرضِ رستریزه‌شده»
+   ---------------------------------------------------------------------
+   سه اندازه‌گیریِ مستقل روی *همان* نمونه‌ها:
+     A  = عرضِ هندسیِ سطحِ تماس (از رکوردهای موتور، بدون رستریزه)
+     B1 = عرضِ پیکسلی با آستانه‌ی آلفا   (روشِ سنجشِ PHASE B)
+     B2 = عرضِ پوششی با انتگرالِ آلفا     (بی‌آستانه، مقیاس‌ناوابسته)
+   و B1/B2 در مقیاس‌های رندرِ 1x / 2x / 4x تکرار می‌شوند، با هندسه‌ی
+   دقیقاً یکسان. هیچ چیزی در موتور تغییر نمی‌کند.
+   ===================================================================== */
+window.__rs = (async function () {
+  const L = window.QalamLab;
+  await L.boot();
+  const T = L.T, H = L.H, QE = window.QalamEngine;
+
+  const hull = new QE.Hull();
+  const fA = new Float32Array(8), fB = new Float32Array(8);
+  const gA = new Float32Array(8), gB = new Float32Array(8);
+
+  function stats(arr) {
+    const v = arr.filter(x => x > 0);
+    if (!v.length) return { n: 0, min: 0, max: 0, mean: 0, std: 0, worstDropPct: 0, gaps: arr.length };
+    let mn = 1e9, mx = 0, s = 0;
+    for (const x of v) { if (x < mn) mn = x; if (x > mx) mx = x; s += x; }
+    const mean = s / v.length;
+    let s2 = 0; for (const x of v) s2 += (x - mean) * (x - mean);
+    let wd = 0;
+    for (let i = 1; i < arr.length; i++) {
+      if (arr[i - 1] > 0 && arr[i] > 0) {
+        const d = (arr[i - 1] - arr[i]) / arr[i - 1];
+        if (d > wd) wd = d;
+      }
+    }
+    return { n: v.length, min: +mn.toFixed(3), max: +mx.toFixed(3),
+             mean: +mean.toFixed(3), std: +Math.sqrt(s2 / v.length).toFixed(3),
+             worstDropPct: +(wd * 100).toFixed(1), gaps: arr.length - v.length };
+  }
+
+  /* بازرستریزه‌کردنِ *همان* رکوردها روی بومِ مستقل با مقیاسِ دلخواه.
+     گذرِ حاشیه و هسته عیناً مثل fillSweep بازتولید می‌شوند. */
+  function rasterize(recs, scale, W, Hh) {
+    const c = document.createElement('canvas');
+    c.width = Math.ceil(W * scale); c.height = Math.ceil(Hh * scale);
+    const g = c.getContext('2d');
+    g.setTransform(scale, 0, 0, scale, 0, 0);
+    const cfg = T.cfg;
+    const fringeOf = (st) => {
+      const ct = st.ct, ab = st.inkSpread == null ? 0 : st.inkSpread;
+      const raw = Math.min(cfg.inkFringeMax,
+        cfg.inkFringeBase + ct * cfg.inkFringeRatio + ab * cfg.inkFringeAbsorption);
+      return Math.round(raw / 0.25) * 0.25;
+    };
+    const fp = (out, st, grow) => QE.footprintFromProfile(out, st.x, st.y,
+      st.ang * Math.PI / 180, st.nw, st.uh, st.ut, st.ct, grow);
+    const path = (a, b) => {
+      const n = hull.build(a, b);
+      g.beginPath(); g.moveTo(hull.outX[0], hull.outY[0]);
+      for (let i = 1; i < n; i++) g.lineTo(hull.outX[i], hull.outY[i]);
+      g.closePath();
+    };
+    for (let i = 1; i < recs.length; i++) {
+      const a = recs[i - 1], b = recs[i];
+      const fw = fringeOf(b);
+      const dep = ((a.inkAmt == null ? 1 : a.inkAmt) + (b.inkAmt == null ? 1 : b.inkAmt)) * 0.5;
+      const base = 1 * Math.min(1, 0.78 + 0.22 * b.dens);
+      const depF = Math.max(0.55, Math.min(1.18, 0.72 + 0.28 * Math.min(2.5, dep)));
+      const core = Math.min(1, base * cfg.inkCoreAlpha * depF);
+      const ab2 = ((a.inkSpread || 0) + (b.inkSpread || 0)) * 0.5;
+      const fringe = Math.min(1, core * cfg.inkFringeAlpha * (0.7 + 0.6 * ab2));
+      if (fw > 0.12 && fringe > 0.004) {
+        fp(gA, a, fw); fp(gB, b, fw);
+        path(gA, gB);
+        g.globalCompositeOperation = 'destination-over';
+        g.globalAlpha = fringe; g.fillStyle = '#000'; g.fill();
+        g.globalCompositeOperation = 'source-over';
+      }
+      fp(fA, a); fp(fB, b);
+      path(fA, fB);
+      g.globalAlpha = core; g.fillStyle = '#000'; g.fill();
+    }
+    return { canvas: c, ctx: g, scale };
+  }
+
+  /* عرض عمود بر جهتِ محلی: هم با آستانه، هم با انتگرالِ آلفا */
+  function measure(rz, recs, W, Hh, nSamples) {
+    const d = rz.ctx.getImageData(0, 0, rz.canvas.width, rz.canvas.height).data;
+    const sc = rz.scale;
+    const alphaAt = (x, y) => {
+      const px = Math.round(x * sc), py = Math.round(y * sc);
+      if (px < 0 || py < 0 || px >= rz.canvas.width || py >= rz.canvas.height) return 0;
+      return d[(py * rz.canvas.width + px) * 4 + 3];
+    };
+    const thr = [], cov = [];
+    const step = 1 / sc;                       // گامِ پویش = یک پیکسلِ دستگاه
+    for (let k = 0; k < nSamples; k++) {
+      const i = Math.round(2 + k / (nSamples - 1) * (recs.length - 5));
+      const a = recs[Math.max(0, i - 2)], b = recs[Math.min(recs.length - 1, i + 2)];
+      const dir = Math.atan2(b.y - a.y, b.x - a.x);
+      const nx = -Math.sin(dir), ny = Math.cos(dir);
+      const cx = recs[i].x, cy = recs[i].y;
+      let lo = null, hi = null, sum = 0;
+      for (let s = -70; s <= 70; s += step) {
+        const al = alphaAt(cx + nx * s, cy + ny * s);
+        sum += al / 255 * step;                // انتگرالِ پوشش (px)
+        if (al > 30) { if (lo === null) lo = s; hi = s; }
+      }
+      thr.push(lo === null ? 0 : +(hi - lo + step).toFixed(3));
+      cov.push(+sum.toFixed(3));
+    }
+    return { threshold: stats(thr), coverage: stats(cov), thrRaw: thr, covRaw: cov };
+  }
+
+  const W = 900, Hh = 600;
+  const MM = [1, 2, 3, 5], PR = [0.2, 0.4, 0.6, 0.8, 1.0];
+  const table = [];
+  let sample1mm = null;
+
+  for (const mm of MM) for (const p of PR) {
+    await L.clear();
+    H.setControl('smooth', 0.3); H.setControl('nib', 'flat'); H.setControl('angle', 100);
+    T.TUNE.nibWidthPx = 0; T.TUNE.nibThicknessPx = 0; T.TUNE.nibWidthMm = mm;
+    T.syncConfig();
+    const path = [];
+    for (let i = 0; i < 240; i++) { const u = i / 239;
+      path.push({ x: 120 + 660 * u, y: 300 }); }
+    L.stroke(path, () => p, 7);
+    await H.waitFrame();
+    const recs = T.strokes[T.strokes.length - 1];
+
+    // A — عرضِ هندسی از رکوردها (بی‌رستریزه)
+    const geo = stats(recs.map(r => r.ap));
+    // B — در سه مقیاس
+    const per = {};
+    for (const sc of [1, 2, 4]) {
+      const rz = rasterize(recs, sc, W, Hh);
+      const m = measure(rz, recs, W, Hh, 60);
+      per['x' + sc] = { threshold: m.threshold, coverage: m.coverage };
+      if (mm === 1 && p === 0.4) {
+        sample1mm = sample1mm || {};
+        sample1mm['x' + sc] = { thr: m.thrRaw.slice(0, 24), cov: m.covRaw.slice(0, 24) };
+      }
+    }
+    table.push({ mm, p, nibWidthPx: +T.cfg.nibWidth.toFixed(2),
+                 nibThickPx: +T.cfg.nibThickness.toFixed(2),
+                 samples: recs.length, geo, per });
+  }
+
+  document.getElementById('o').textContent = 'ok';
+  return { ok: true, table, sample1mm };
+})();
+window.__rs.then(r => { try { const q = new XMLHttpRequest();
+  q.open('POST', '/__result', true); q.send(JSON.stringify(r)); } catch (e) {} })
+ .catch(e => { try { const q = new XMLHttpRequest(); q.open('POST', '/__result', true);
+  q.send(JSON.stringify({ ok: false, error: String(e && e.stack || e) })); } catch (_) {} });
+</script></body></html>

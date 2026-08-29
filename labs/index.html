@@ -1,0 +1,38 @@
+<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>آزمایشگاه موتور قلم نی</title><link rel="stylesheet" href="_style.css"></head>
+<body>
+<header><h1>آزمایشگاه موتور قلم نی</h1><a href="../index.html">بازگشت به برنامه</a></header>
+<main>
+<div class="card">
+  <h2>آزمون‌های سخت‌افزارِ واقعی (با قلم نوری انجام دهید)</h2>
+  <ul>
+    <li><a href="stylus-probe.html">سنجشگر قلم نوری</a> —
+      دادهٔ خامِ مرورگر: فشار، tilt، azimuth/altitude، twist، دنبالهٔ رویداد،
+      مقایسهٔ pointermove با pointerrawupdate، و خروجی JSON.
+      <b>برای تشخیصِ تفاوت Chrome/Firefox همین صفحه را در هر دو باز کنید.</b></li>
+    <li><a href="pressure-test.html">آزمون فشار</a> —
+      نردبانِ فشار 0…1 با قلم واقعی: پهنای سطحِ تماس، پهنای رندرشده،
+      چگالی مرکب، سرعت و شکلِ سطحِ تماس.</li>
+  </ul>
+</div>
+<div class="card">
+  <h2>آزمون‌های خودکار (هندسه و فیزیک)</h2>
+  <ul>
+    <li><a href="width-test.html">آزمون پهنای نوک (mm)</a> —
+      1، 2، 3، 5، 10، 15، 20 میلی‌متر در فشارِ 1 و 0.5.</li>
+    <li><a href="nib-angle-matrix.html">ماتریس زاویهٔ نوک</a> —
+      زاویه 0…90° × جهتِ افقی/عمودی/مورب.</li>
+    <li><a href="calligraphy.html">آزمون خوشنویسی</a> —
+      کشیده، دایره، قوس، تغییر جهت، و حروف نمونه.</li>
+  </ul>
+</div>
+<div class="card">
+  <h2>آزمون‌های موتور و کارایی (خط فرمان)</h2>
+  <pre style="font:11px Consolas,monospace;direction:ltr;white-space:pre-wrap">
+node bench/run-headless.js "file://$PWD/bench/tests.html" window.__testResult
+node bench/run-headless.js "file://$PWD/bench/bench.html?engine=../app.js" window.__benchResult
+node bench/collect.js chrome  bench/probe.html
+node bench/collect.js firefox bench/probe.html</pre>
+</div>
+</main></body></html>

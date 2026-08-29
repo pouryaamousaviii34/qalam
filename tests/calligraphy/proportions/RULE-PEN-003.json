@@ -1,0 +1,20 @@
+{
+ "testId": "RULE-PEN-003",
+ "ruleId": "RULE-PEN-003",
+ "sourcePages": [
+  6
+ ],
+ "input": {
+  "name": "سه دانگ مشقی"
+ },
+ "expected": {
+  "minMm": 3.5,
+  "maxMm": 4
+ },
+ "tolerance": {
+  "mm": 0.01
+ },
+ "status": "READY",
+ "requiresEngine": false,
+ "note": "توالی غیرِخطی است؛ به CONFLICT-002 نگاه کنید."
+}

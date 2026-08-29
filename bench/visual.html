@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head><meta charset="UTF-8"><title>visual check</title>
+<style>html,body{margin:0;height:100%}#host{width:900px;height:640px}</style>
+</head>
+<body>
+<div id="host"></div>
+<script src="harness.js"></script>
+<script>
+/* visual.html — تولیدِ تصویرِ خروجی برای بازرسیِ چشمی (PHASE 20/21) */
+window.__visual = (async function () {
+  const H = window.QalamHarness;
+  H.buildDOM(900, 640);
+  await new Promise(r => setTimeout(r, 60));
+  await H.loadEngine('../stylus.js');
+  await H.loadEngine('../qalam-engine.js');
+  await H.loadEngine('../app.js');
+  await new Promise(r => setTimeout(r, 150));
+  const T = window.__qalamTest;
+  const errs = [];
+  window.addEventListener('error', e => errs.push(String(e.message)));
+
+  document.getElementById('clear').click();
+  H.setControl('size', 9);
+  H.setControl('nibRatio', 3);
+  H.setControl('angle', 109);
+  H.setControl('nibThick', 1);
+  H.setControl('smooth', 0.4);
+
+  // ۱) شبکهٔ آزمون فشار
+  document.getElementById('gridBtn').click();
+  await H.waitFrame();
+
+  // ۲) چند حرکتِ واقعیِ قلم زیرِ شبکه
+  H.setControl('size', 12);
+  await H.playStroke(H.pathLine(120, 470, 780, 470, 260, u => 0.15 + 0.85 * u),
+                     { hz: 200, pointerType: 'pen' });
+  await H.playStroke(H.pathCircle(250, 570, 48, 240, () => 0.85),
+                     { hz: 200, pointerType: 'pen' });
+  H.setControl('size', 3);
+  await H.playStroke(H.pathZigzag(400, 570, 340, 26, 300, u => 0.3 + 0.6 * u),
+                     { hz: 200, pointerType: 'pen' });
+  await H.waitFrame();
+
+  // ترکیبِ کاغذ + مرکب (همان مسیرِ ذخیرهٔ PNG)
+  const d = T.dims();
+  const out = document.createElement('canvas');
+  out.width = Math.round(d.W * d.dpr);
+  out.height = Math.round(d.H * d.dpr);
+  const o = out.getContext('2d');
+  o.drawImage(document.getElementById('paperTex'), 0, 0);
+  o.drawImage(T.inkCanvas, 0, 0);
+  return { png: out.toDataURL('image/png'), errors: errs, strokes: T.strokes.length };
+})();
+</script>
+</body>
+</html>

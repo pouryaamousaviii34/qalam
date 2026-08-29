@@ -1,0 +1,466 @@
+{
+ "meta": {
+  "source": "adabolkat-AmirKhani.pdf",
+  "warning": "این فایل دانشِ خوشنویسی است، نه قالبِ بیت‌مپ. هیچ مختصاتِ پیکسلی ندارد.",
+  "coverage": "حروفِ دارای صفحهٔ مشقِ اختصاصی؛ حروفِ الفبای کاملِ صفحهٔ ۸ در alphabetTable ثبت شده‌اند."
+ },
+ "alphabetTable": {
+  "page": 8,
+  "sourceType": "SOURCE_VISUAL",
+  "confidence": 0.55,
+  "description": "حروفِ الفبا در ۴–۵ سطر، دسته‌بندی‌شده بر اساس رابطه با خط میزان",
+  "rowsObserved": [
+   {
+    "row": 1,
+    "glyphsRead": [
+     "ل",
+     "س",
+     "ب",
+     "ع",
+     "ج",
+     "ی"
+    ],
+    "captionGist": "کششی کمتر از یک نقطه زیر خط میزان",
+    "confidence": 0.5
+   },
+   {
+    "row": 2,
+    "glyphsRead": [
+     "ی",
+     "ن",
+     "ص",
+     "س",
+     "ق",
+     "و"
+    ],
+    "captionGist": "یک نقطه زیر خط میزان",
+    "confidence": 0.5
+   },
+   {
+    "row": 3,
+    "glyphsRead": [
+     "ک",
+     "و",
+     "ب",
+     "ن",
+     "کا"
+    ],
+    "captionGist": "روی خط میزان",
+    "confidence": 0.4
+   },
+   {
+    "row": 4,
+    "glyphsRead": [
+     "ر",
+     "د",
+     "ز",
+     "ط",
+     "و",
+     "ه",
+     "هما"
+    ],
+    "captionGist": "UNKNOWN",
+    "confidence": 0.35
+   },
+   {
+    "row": 5,
+    "glyphsRead": [
+     "ب",
+     "س",
+     "سه",
+     "م",
+     "هرم"
+    ],
+    "captionGist": "سرِ میم یک نقطه بالاتر از خط میزان",
+    "confidence": 0.4
+   }
+  ],
+  "caveat": "خوانشِ گلیف‌ها و شرح‌ها از رندرِ ۱۰۰dpi است و قطعی نیست. نیازمندِ اسکنِ بازتر."
+ },
+ "letters": [
+  {
+   "id": "heh_jimi",
+   "unicode": "ح",
+   "name": "حا/حجی",
+   "drillPage": 11,
+   "sourcePages": [
+    11,
+    8
+   ],
+   "strokeCount": "UNKNOWN",
+   "strokeOrder": "UNKNOWN",
+   "strokeDirections": "UNKNOWN",
+   "components": "UNKNOWN",
+   "connections": {
+    "initial": "UNKNOWN",
+    "medial": "UNKNOWN",
+    "final": "UNKNOWN",
+    "isolated": "PRESENT_IN_DRILL"
+   },
+   "terminalForms": "UNKNOWN",
+   "dots": "UNKNOWN",
+   "baselineBehavior": "UNKNOWN",
+   "proportionsInDang": "UNKNOWN",
+   "evidence": "صفحهٔ مشقِ اختصاصی (تکرارِ ترکیب‌ها + نمونهٔ درشت) و جدولِ الفبای صفحهٔ ۸",
+   "sourceType": "SOURCE_VISUAL",
+   "confidence": 0.55,
+   "notes": "ترتیب و جهتِ حرکت در این کتاب علامت‌گذاری نشده است؛ هیچ فلش یا شماره‌ای روی حروف نیست."
+  },
+  {
+   "id": "reh",
+   "unicode": "ر",
+   "name": "ر",
+   "drillPage": 12,
+   "sourcePages": [
+    12,
+    8
+   ],
+   "strokeCount": "UNKNOWN",
+   "strokeOrder": "UNKNOWN",
+   "strokeDirections": "UNKNOWN",
+   "components": "UNKNOWN",
+   "connections": {
+    "initial": "UNKNOWN",
+    "medial": "UNKNOWN",
+    "final": "UNKNOWN",
+    "isolated": "PRESENT_IN_DRILL"
+   },
+   "terminalForms": "UNKNOWN",
+   "dots": "UNKNOWN",
+   "baselineBehavior": "UNKNOWN",
+   "proportionsInDang": "UNKNOWN",
+   "evidence": "صفحهٔ مشقِ اختصاصی (تکرارِ ترکیب‌ها + نمونهٔ درشت) و جدولِ الفبای صفحهٔ ۸",
+   "sourceType": "SOURCE_VISUAL",
+   "confidence": 0.55,
+   "notes": "ترتیب و جهتِ حرکت در این کتاب علامت‌گذاری نشده است؛ هیچ فلش یا شماره‌ای روی حروف نیست."
+  },
+  {
+   "id": "seen",
+   "unicode": "س",
+   "name": "س",
+   "drillPage": 13,
+   "sourcePages": [
+    13,
+    8
+   ],
+   "strokeCount": "UNKNOWN",
+   "strokeOrder": "UNKNOWN",
+   "strokeDirections": "UNKNOWN",
+   "components": "UNKNOWN",
+   "connections": {
+    "initial": "UNKNOWN",
+    "medial": "UNKNOWN",
+    "final": "UNKNOWN",
+    "isolated": "PRESENT_IN_DRILL"
+   },
+   "terminalForms": "UNKNOWN",
+   "dots": "UNKNOWN",
+   "baselineBehavior": "UNKNOWN",
+   "proportionsInDang": "UNKNOWN",
+   "evidence": "صفحهٔ مشقِ اختصاصی (تکرارِ ترکیب‌ها + نمونهٔ درشت) و جدولِ الفبای صفحهٔ ۸",
+   "sourceType": "SOURCE_VISUAL",
+   "confidence": 0.55,
+   "notes": "ترتیب و جهتِ حرکت در این کتاب علامت‌گذاری نشده است؛ هیچ فلش یا شماره‌ای روی حروف نیست."
+  },
+  {
+   "id": "sad",
+   "unicode": "ص",
+   "name": "ص",
+   "drillPage": 14,
+   "sourcePages": [
+    14,
+    8
+   ],
+   "strokeCount": "UNKNOWN",
+   "strokeOrder": "UNKNOWN",
+   "strokeDirections": "UNKNOWN",
+   "components": "UNKNOWN",
+   "connections": {
+    "initial": "UNKNOWN",
+    "medial": "UNKNOWN",
+    "final": "UNKNOWN",
+    "isolated": "PRESENT_IN_DRILL"
+   },
+   "terminalForms": "UNKNOWN",
+   "dots": "UNKNOWN",
+   "baselineBehavior": "UNKNOWN",
+   "proportionsInDang": "UNKNOWN",
+   "evidence": "صفحهٔ مشقِ اختصاصی (تکرارِ ترکیب‌ها + نمونهٔ درشت) و جدولِ الفبای صفحهٔ ۸",
+   "sourceType": "SOURCE_VISUAL",
+   "confidence": 0.55,
+   "notes": "ترتیب و جهتِ حرکت در این کتاب علامت‌گذاری نشده است؛ هیچ فلش یا شماره‌ای روی حروف نیست."
+  },
+  {
+   "id": "ta",
+   "unicode": "ط",
+   "name": "ط",
+   "drillPage": 15,
+   "sourcePages": [
+    15,
+    8
+   ],
+   "strokeCount": "UNKNOWN",
+   "strokeOrder": "UNKNOWN",
+   "strokeDirections": "UNKNOWN",
+   "components": "UNKNOWN",
+   "connections": {
+    "initial": "UNKNOWN",
+    "medial": "UNKNOWN",
+    "final": "UNKNOWN",
+    "isolated": "PRESENT_IN_DRILL"
+   },
+   "terminalForms": "UNKNOWN",
+   "dots": "UNKNOWN",
+   "baselineBehavior": "UNKNOWN",
+   "proportionsInDang": "UNKNOWN",
+   "evidence": "صفحهٔ مشقِ اختصاصی (تکرارِ ترکیب‌ها + نمونهٔ درشت) و جدولِ الفبای صفحهٔ ۸",
+   "sourceType": "SOURCE_VISUAL",
+   "confidence": 0.55,
+   "notes": "ترتیب و جهتِ حرکت در این کتاب علامت‌گذاری نشده است؛ هیچ فلش یا شماره‌ای روی حروف نیست."
+  },
+  {
+   "id": "ayn",
+   "unicode": "ع",
+   "name": "ع",
+   "drillPage": 16,
+   "sourcePages": [
+    16,
+    8
+   ],
+   "strokeCount": "UNKNOWN",
+   "strokeOrder": "UNKNOWN",
+   "strokeDirections": "UNKNOWN",
+   "components": {
+    "head": "PRESENT",
+    "bowl": "PRESENT",
+    "tail": "PRESENT",
+    "sourceType": "SOURCE_VISUAL",
+    "note": "از شکلِ نمونه‌های صفحهٔ ۱۶ و جدولِ صفحهٔ ۸"
+   },
+   "connections": {
+    "initial": "UNKNOWN",
+    "medial": "UNKNOWN",
+    "final": "UNKNOWN",
+    "isolated": "PRESENT_IN_DRILL"
+   },
+   "terminalForms": "UNKNOWN",
+   "dots": "UNKNOWN",
+   "baselineBehavior": {
+    "group": "ROW_1_OF_PAGE8_TABLE",
+    "description": "در جدولِ الفبای صفحهٔ ۸، «ع» در سطرِ نخست دیده می‌شود؛ شرحِ آن سطر رابطه با خط میزان را بر حسبِ نقطه بیان می‌کند.",
+    "sourceType": "SOURCE_VISUAL",
+    "confidence": 0.5,
+    "caveat": "تشخیصِ گلیف و خوانشِ شرح در رزولوشنِ فعلی قطعی نیست."
+   },
+   "proportionsInDang": "UNKNOWN",
+   "evidence": "صفحهٔ مشقِ اختصاصی (تکرارِ ترکیب‌ها + نمونهٔ درشت) و جدولِ الفبای صفحهٔ ۸",
+   "sourceType": "SOURCE_VISUAL",
+   "confidence": 0.6,
+   "notes": "ترتیب و جهتِ حرکت در این کتاب علامت‌گذاری نشده است؛ هیچ فلش یا شماره‌ای روی حروف نیست. توجه: ترتیبِ چهار حرکتی که در فازهای قبلِ پروژه برای «ع» استفاده شد از تصویرِ ارسالیِ کاربر آمده، نه از این کتاب."
+  },
+  {
+   "id": "qaf_vav",
+   "unicode": "ق و",
+   "name": "ق/و",
+   "drillPage": 17,
+   "sourcePages": [
+    17,
+    8
+   ],
+   "strokeCount": "UNKNOWN",
+   "strokeOrder": "UNKNOWN",
+   "strokeDirections": "UNKNOWN",
+   "components": "UNKNOWN",
+   "connections": {
+    "initial": "UNKNOWN",
+    "medial": "UNKNOWN",
+    "final": "UNKNOWN",
+    "isolated": "PRESENT_IN_DRILL"
+   },
+   "terminalForms": "UNKNOWN",
+   "dots": "UNKNOWN",
+   "baselineBehavior": "UNKNOWN",
+   "proportionsInDang": "UNKNOWN",
+   "evidence": "صفحهٔ مشقِ اختصاصی (تکرارِ ترکیب‌ها + نمونهٔ درشت) و جدولِ الفبای صفحهٔ ۸",
+   "sourceType": "SOURCE_VISUAL",
+   "confidence": 0.55,
+   "notes": "ترتیب و جهتِ حرکت در این کتاب علامت‌گذاری نشده است؛ هیچ فلش یا شماره‌ای روی حروف نیست."
+  },
+  {
+   "id": "kaf",
+   "unicode": "ک",
+   "name": "ک",
+   "drillPage": 18,
+   "sourcePages": [
+    18,
+    8
+   ],
+   "strokeCount": "UNKNOWN",
+   "strokeOrder": "UNKNOWN",
+   "strokeDirections": "UNKNOWN",
+   "components": "UNKNOWN",
+   "connections": {
+    "initial": "UNKNOWN",
+    "medial": "UNKNOWN",
+    "final": "UNKNOWN",
+    "isolated": "PRESENT_IN_DRILL"
+   },
+   "terminalForms": "UNKNOWN",
+   "dots": "UNKNOWN",
+   "baselineBehavior": "UNKNOWN",
+   "proportionsInDang": "UNKNOWN",
+   "evidence": "صفحهٔ مشقِ اختصاصی (تکرارِ ترکیب‌ها + نمونهٔ درشت) و جدولِ الفبای صفحهٔ ۸",
+   "sourceType": "SOURCE_VISUAL",
+   "confidence": 0.55,
+   "notes": "ترتیب و جهتِ حرکت در این کتاب علامت‌گذاری نشده است؛ هیچ فلش یا شماره‌ای روی حروف نیست."
+  },
+  {
+   "id": "lam",
+   "unicode": "ل",
+   "name": "ل",
+   "drillPage": 19,
+   "sourcePages": [
+    19,
+    8
+   ],
+   "strokeCount": "UNKNOWN",
+   "strokeOrder": "UNKNOWN",
+   "strokeDirections": "UNKNOWN",
+   "components": "UNKNOWN",
+   "connections": {
+    "initial": "UNKNOWN",
+    "medial": "UNKNOWN",
+    "final": "UNKNOWN",
+    "isolated": "PRESENT_IN_DRILL"
+   },
+   "terminalForms": "UNKNOWN",
+   "dots": "UNKNOWN",
+   "baselineBehavior": "UNKNOWN",
+   "proportionsInDang": "UNKNOWN",
+   "evidence": "صفحهٔ مشقِ اختصاصی (تکرارِ ترکیب‌ها + نمونهٔ درشت) و جدولِ الفبای صفحهٔ ۸",
+   "sourceType": "SOURCE_VISUAL",
+   "confidence": 0.55,
+   "notes": "ترتیب و جهتِ حرکت در این کتاب علامت‌گذاری نشده است؛ هیچ فلش یا شماره‌ای روی حروف نیست."
+  },
+  {
+   "id": "meem",
+   "unicode": "م",
+   "name": "م",
+   "drillPage": 20,
+   "sourcePages": [
+    20,
+    8
+   ],
+   "strokeCount": "UNKNOWN",
+   "strokeOrder": "UNKNOWN",
+   "strokeDirections": "UNKNOWN",
+   "components": "UNKNOWN",
+   "connections": {
+    "initial": "UNKNOWN",
+    "medial": "UNKNOWN",
+    "final": "UNKNOWN",
+    "isolated": "PRESENT_IN_DRILL"
+   },
+   "terminalForms": "UNKNOWN",
+   "dots": "UNKNOWN",
+   "baselineBehavior": "UNKNOWN",
+   "proportionsInDang": "UNKNOWN",
+   "evidence": "صفحهٔ مشقِ اختصاصی (تکرارِ ترکیب‌ها + نمونهٔ درشت) و جدولِ الفبای صفحهٔ ۸",
+   "sourceType": "SOURCE_VISUAL",
+   "confidence": 0.55,
+   "notes": "ترتیب و جهتِ حرکت در این کتاب علامت‌گذاری نشده است؛ هیچ فلش یا شماره‌ای روی حروف نیست."
+  },
+  {
+   "id": "noon",
+   "unicode": "ن",
+   "name": "ن",
+   "drillPage": 21,
+   "sourcePages": [
+    21,
+    8
+   ],
+   "strokeCount": "UNKNOWN",
+   "strokeOrder": "UNKNOWN",
+   "strokeDirections": "UNKNOWN",
+   "components": "UNKNOWN",
+   "connections": {
+    "initial": "UNKNOWN",
+    "medial": "UNKNOWN",
+    "final": "UNKNOWN",
+    "isolated": "PRESENT_IN_DRILL"
+   },
+   "terminalForms": "UNKNOWN",
+   "dots": {
+    "count": 1,
+    "position": "ABOVE",
+    "source": "SOURCE_VISUAL"
+   },
+   "baselineBehavior": "UNKNOWN",
+   "proportionsInDang": "UNKNOWN",
+   "evidence": "صفحهٔ مشقِ اختصاصی (تکرارِ ترکیب‌ها + نمونهٔ درشت) و جدولِ الفبای صفحهٔ ۸",
+   "sourceType": "SOURCE_VISUAL",
+   "confidence": 0.55,
+   "notes": "ترتیب و جهتِ حرکت در این کتاب علامت‌گذاری نشده است؛ هیچ فلش یا شماره‌ای روی حروف نیست."
+  },
+  {
+   "id": "heh",
+   "unicode": "ه",
+   "name": "ه",
+   "drillPage": 22,
+   "sourcePages": [
+    22,
+    8
+   ],
+   "strokeCount": "UNKNOWN",
+   "strokeOrder": "UNKNOWN",
+   "strokeDirections": "UNKNOWN",
+   "components": "UNKNOWN",
+   "connections": {
+    "initial": "UNKNOWN",
+    "medial": "UNKNOWN",
+    "final": "UNKNOWN",
+    "isolated": "PRESENT_IN_DRILL"
+   },
+   "terminalForms": "UNKNOWN",
+   "dots": "UNKNOWN",
+   "baselineBehavior": "UNKNOWN",
+   "proportionsInDang": "UNKNOWN",
+   "evidence": "صفحهٔ مشقِ اختصاصی (تکرارِ ترکیب‌ها + نمونهٔ درشت) و جدولِ الفبای صفحهٔ ۸",
+   "sourceType": "SOURCE_VISUAL",
+   "confidence": 0.55,
+   "notes": "ترتیب و جهتِ حرکت در این کتاب علامت‌گذاری نشده است؛ هیچ فلش یا شماره‌ای روی حروف نیست."
+  },
+  {
+   "id": "yeh",
+   "unicode": "ی",
+   "name": "ی",
+   "drillPage": 23,
+   "sourcePages": [
+    23,
+    8
+   ],
+   "strokeCount": "UNKNOWN",
+   "strokeOrder": "UNKNOWN",
+   "strokeDirections": "UNKNOWN",
+   "components": "UNKNOWN",
+   "connections": {
+    "initial": "UNKNOWN",
+    "medial": "UNKNOWN",
+    "final": "UNKNOWN",
+    "isolated": "PRESENT_IN_DRILL"
+   },
+   "terminalForms": "UNKNOWN",
+   "dots": {
+    "count": 2,
+    "position": "BELOW",
+    "source": "SOURCE_VISUAL"
+   },
+   "baselineBehavior": "UNKNOWN",
+   "proportionsInDang": "UNKNOWN",
+   "evidence": "صفحهٔ مشقِ اختصاصی (تکرارِ ترکیب‌ها + نمونهٔ درشت) و جدولِ الفبای صفحهٔ ۸",
+   "sourceType": "SOURCE_VISUAL",
+   "confidence": 0.55,
+   "notes": "ترتیب و جهتِ حرکت در این کتاب علامت‌گذاری نشده است؛ هیچ فلش یا شماره‌ای روی حروف نیست."
+  }
+ ]
+}

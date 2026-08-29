@@ -1,0 +1,16 @@
+{
+ "testId": "LETTER-dal",
+ "letter": "د",
+ "letterId": "dal",
+ "sourcePages": [
+  8
+ ],
+ "strokeCount": "UNKNOWN",
+ "strokeOrder": "UNKNOWN",
+ "direction": "UNKNOWN",
+ "expectedGeometry": "UNKNOWN",
+ "expectedProportions": "UNKNOWN",
+ "status": "SKIPPED",
+ "requiresEngine": false,
+ "note": "صفحهٔ مشقِ اختصاصی برای این حرف در نسخهٔ بازرسی‌شده یافت نشد."
+}

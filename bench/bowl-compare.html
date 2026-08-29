@@ -1,0 +1,212 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>bowl compare</title></head>
+<body><div id="app"></div><pre id="o">…</pre>
+<script src="../labs/imglib.js"></script>
+<script src="harness.js"></script>
+<script src="../labs/lab.js"></script>
+<script>
+window.__bc = (async function () {
+  const M = window.QalamImg;
+  const RJ = await (await fetch('../labs/ref/ayn-reference.json')).json();
+  const BJ = await (await fetch('../labs/ref/ayn-bowl-path.json')).json();
+  const W = RJ.imageSize[0], H = RJ.imageSize[1];
+
+  const mi = new Image();
+  await new Promise((r, j) => { mi.onload = r; mi.onerror = j; mi.src = '../labs/ref/ayn-mask.png'; });
+  const mc = document.createElement('canvas'); mc.width = W; mc.height = H;
+  const mx = mc.getContext('2d'); mx.drawImage(mi, 0, 0);
+  const md = mx.getImageData(0, 0, W, H).data;
+  const ref = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) ref[i] = md[i * 4] < 128 ? 1 : 0;
+
+  const L = window.QalamLab;
+  await L.boot();
+  const T = L.T, HH = L.H;
+  const dims = T.dims();
+  const REG = {
+    head: { x0: 120, y0: 14, x1: 230, y1: 95 },
+    eye:  { x0: 150, y0: 35, x1: 222, y1: 90 },
+    neck: { x0: 122, y0: 90, x1: 170, y1: 118 },
+    bowl: { x0: 108, y0: 110, x1: 245, y1: 228 },
+    tail: { x0: 225, y0: 120, x1: 285, y1: 200 },
+  };
+
+  function grab() {
+    const od = L.ictx.getImageData(0, 0, L.ink.width, L.ink.height).data;
+    const out = new Uint8Array(W * H);
+    for (let py = 0; py < H; py++) for (let px = 0; px < W; px++) {
+      const qx = Math.round(px * dims.dpr), qy = Math.round(py * dims.dpr);
+      if (qx < 0 || qy < 0 || qx >= L.ink.width || qy >= L.ink.height) continue;
+      if (od[(qy * L.ink.width + qx) * 4 + 3] > 40) out[py * W + px] = 1;
+    }
+    return out;
+  }
+  function metrics(out) {
+    const m = M.compare(ref, out, W, H);
+    m.regions = {};
+    for (const k in REG) m.regions[k] = M.compareRegion(ref, out, W, H, REG[k]);
+    const skR = M.skeletonize(ref, W, H), skO = M.skeletonize(out, W, H);
+    const dR = M.distanceToMask(skR, W, H), dO = M.distanceToMask(skO, W, H);
+    let s1 = 0, n1 = 0, s2 = 0, n2 = 0;
+    for (let i = 0; i < W * H; i++) {
+      if (skR[i]) { s1 += dO[i]; n1++; }
+      if (skO[i]) { s2 += dR[i]; n2++; }
+    }
+    m.centerlineDist = +(((n1 ? s1/n1 : 0) + (n2 ? s2/n2 : 0)) / 2).toFixed(3);
+    return m;
+  }
+  function overlay(out) {
+    const cc = document.createElement('canvas'); cc.width = W; cc.height = H;
+    const g = cc.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    for (let i = 0; i < W * H; i++) {
+      const a = ref[i], b = out[i];
+      if (a && b) g.fillStyle = '#2e7d4f';
+      else if (a) g.fillStyle = '#c0392b';
+      else if (b) g.fillStyle = '#2b6cb0';
+      else continue;
+      g.fillRect(i % W, (i / W) | 0, 1, 1);
+    }
+    return cc.toDataURL('image/png');
+  }
+  const pressFrom = hw => {
+    const m = Math.max.apply(null, hw);
+    return u => {
+      const i = Math.min(hw.length - 1, Math.max(0, Math.round(u * (hw.length - 1))));
+      return Math.max(0.06, Math.min(1, hw[i] / m));
+    };
+  };
+
+  /* نوکِ ثابت در همه‌ی حالت‌ها — طبق دستور، فیزیکِ قلم تغییر نمی‌کند */
+  function setNib() {
+    HH.setControl('smooth', 0.35); HH.setControl('nib', 'flat');
+    HH.setControl('angle', 122);
+    T.TUNE.nibWidthMm = 0;
+    T.TUNE.nibWidthPx = 45; T.TUNE.nibThicknessPx = 13;
+    T.TUNE.velocityWidthInfluence = 0;
+    T.syncConfig();
+  }
+
+  const headStrokes = RJ.strokes.filter(s => s.id !== 4);
+  const oldBowl = RJ.strokes.find(s => s.id === 4);
+  const newBowlCp = BJ.controlPoints.map(p => ({ x: p[0], y: p[1] }));
+  const newBowlHw = BJ.samples.map(s => s.hw);
+
+  async function render(bowlKind) {
+    await L.clear();
+    setNib();
+    for (const s of headStrokes) {
+      const pts = M.catmullRom(s.controlPoints.map(p => ({ x: p[0], y: p[1] })), 12);
+      L.stroke(pts, pressFrom(s.halfWidthProfile), 7);
+      await HH.waitFrame();
+    }
+    let bowlPts = null, bowlHw = null;
+    if (bowlKind === 'A') {           // مسیرِ حدسیِ قدیم
+      bowlPts = M.catmullRom(oldBowl.controlPoints.map(p => ({ x: p[0], y: p[1] })), 12);
+      bowlHw = oldBowl.halfWidthProfile;
+    } else if (bowlKind === 'B') {    // خطِ مرکزیِ خامِ استخراج‌شده
+      bowlPts = BJ.samples.map(s => ({ x: s.x, y: s.y }));
+      bowlHw = newBowlHw;
+    } else {                          // C: مسیرِ پارامتریِ بازسازی‌شده
+      bowlPts = M.catmullRom(newBowlCp, 12);
+      bowlHw = newBowlHw;
+    }
+    L.stroke(bowlPts, pressFrom(bowlHw), 7);
+    await HH.waitFrame();
+    return { mask: grab(), bowlPts, png: L.snapshot(null, 0, 0, W, H, 1) };
+  }
+
+  const out = {};
+  for (const k of ['A', 'B', 'C']) {
+    const r = await render(k);
+    out[k] = { m: metrics(r.mask), png: r.png, ov: overlay(r.mask) };
+    if (k === 'C') out.Cpts = r.bowlPts;
+  }
+
+  /* ---------- پروفایلِ عرض با انتگرالِ آلفا (سنجهٔ مصوبِ PHASE C) ---------- */
+  const refAlpha = (x, y) => {
+    const px = Math.round(x), py = Math.round(y);
+    if (px < 0 || py < 0 || px >= W || py >= H) return 0;
+    return ref[py * W + px] ? 255 : 0;
+  };
+  const od = L.ictx.getImageData(0, 0, L.ink.width, L.ink.height).data;
+  const renAlpha = (x, y) => {
+    const px = Math.round(x * dims.dpr), py = Math.round(y * dims.dpr);
+    if (px < 0 || py < 0 || px >= L.ink.width || py >= L.ink.height) return 0;
+    return od[(py * L.ink.width + px) * 4 + 3];
+  };
+  const pts = out.Cpts;
+  const profile = [];
+  const N = 70;
+  for (let k = 0; k < N; k++) {
+    const i = Math.round(3 + k / (N - 1) * (pts.length - 7));
+    const rw = M.coverageWidth(refAlpha, pts, i, 0.25, 80);
+    const dw = M.coverageWidth(renAlpha, pts, i, 0.25, 80);
+    const s = k / (N - 1);
+    const hi = Math.min(newBowlHw.length - 1, Math.round(s * (newBowlHw.length - 1)));
+    profile.push({ s: +s.toFixed(3), x: +pts[i].x.toFixed(1), y: +pts[i].y.toFixed(1),
+      refWidth: rw.width, renWidth: dw.width,
+      err: +(dw.width - rw.width).toFixed(3),
+      dirDeg: +(rw.dirRad * 180 / Math.PI).toFixed(1),
+      pressureEstimate: +(newBowlHw[hi] / Math.max.apply(null, newBowlHw)).toFixed(3) });
+  }
+  let maxAbsErr = 0, sumAbs = 0, tooThin = 0, tooThick = 0, okN = 0;
+  const TOL = 2.0;
+  for (const p of profile) {
+    const a = Math.abs(p.err);
+    if (a > maxAbsErr) maxAbsErr = a;
+    sumAbs += a;
+    if (p.err < -TOL) tooThin++; else if (p.err > TOL) tooThick++; else okN++;
+  }
+
+  /* نقشهٔ خطای عرض روی مسیر */
+  const errMap = (function () {
+    const cc = document.createElement('canvas'); cc.width = W; cc.height = H;
+    const g = cc.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    g.globalAlpha = 0.18; g.fillStyle = '#000';
+    for (let i = 0; i < W * H; i++) if (ref[i]) g.fillRect(i % W, (i / W) | 0, 1, 1);
+    g.globalAlpha = 1;
+    for (const p of profile) {
+      g.fillStyle = p.err < -TOL ? '#c0392b' : (p.err > TOL ? '#2b6cb0' : '#2e7d4f');
+      g.beginPath(); g.arc(p.x, p.y, 2.6, 0, Math.PI * 2); g.fill();
+    }
+    return cc.toDataURL('image/png');
+  })();
+
+  /* ---------- آزمونِ نوکِ بزرگ + سقفِ maxThickness ---------- */
+  const nibTest = [];
+  for (const wpx of [10, 20, 30, 45, 60]) {
+    // حالتِ ۱: ضخامت از اسلایدرها (maxThickness) — همان مسیرِ پیش‌فرض
+    T.TUNE.nibWidthPx = wpx; T.TUNE.nibThicknessPx = 0;
+    HH.setControl('nibThick', 8);      // بیشینه‌ی اسلایدر
+    T.syncConfig();
+    const sliderThick = +T.cfg.nibThickness.toFixed(3);
+    // حالتِ ۲: ضخامتِ صریح، برابرِ ۱/۳٫۵ پهنا (نسبتِ مرجع)
+    const want = +(wpx / 3.5).toFixed(2);
+    T.TUNE.nibThicknessPx = want;
+    T.syncConfig();
+    nibTest.push({ nibWidthPx: wpx,
+      thicknessFromSliders: sliderThick,
+      clippedBySliderPath: sliderThick >= 7.999,
+      requestedThickness: want,
+      achievedThickness: +T.cfg.nibThickness.toFixed(3),
+      achievedWidth: +T.cfg.nibWidth.toFixed(3),
+      ratioAchieved: +(T.cfg.nibWidth / T.cfg.nibThickness).toFixed(2) });
+  }
+  T.TUNE.nibWidthPx = 0; T.TUNE.nibThicknessPx = 0; T.syncConfig();
+
+  document.getElementById('o').textContent = 'ok';
+  return { ok: true,
+    A: out.A.m, B: out.B.m, C: out.C.m,
+    widthProfile: profile,
+    widthStats: { maxAbsErr: +maxAbsErr.toFixed(2),
+                  meanAbsErr: +(sumAbs / profile.length).toFixed(2),
+                  tolerancePx: TOL, tooThin, tooThick, withinTol: okN, n: profile.length },
+    nibTest,
+    pngC: out.C.png, ovA: out.A.ov, ovC: out.C.ov, errMap };
+})();
+window.__bc.then(r => { try { const q = new XMLHttpRequest();
+  q.open('POST', '/__result', true); q.send(JSON.stringify(r)); } catch (e) {} })
+ .catch(e => { try { const q = new XMLHttpRequest(); q.open('POST', '/__result', true);
+  q.send(JSON.stringify({ ok: false, error: String(e && e.stack || e) })); } catch (_) {} });
+</script></body></html>

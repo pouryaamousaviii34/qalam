@@ -1,0 +1,1280 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>Assist + Ballpoint — Tests</title>
+<style>
+ body{margin:0;font:13px/1.5 monospace;background:#14120f;color:#e6ddcb}
+ #out{padding:12px;white-space:pre-wrap}
+ .pass{color:#66c98a}.fail{color:#e2705f}
+ #app{position:absolute;left:-5000px;top:0}
+</style>
+</head>
+<body>
+<pre id="out">RUNNING…</pre>
+<script src="harness.js"></script>
+<script>
+/* =====================================================================
+   assist-tests.html — تست‌های لایهٔ «دستیارِ هوشمند» و «خودکارِ واقعی»
+   ---------------------------------------------------------------------
+   اجرا:
+     node bench/run-headless.js "file://…/bench/assist-tests.html" \
+          window.__assistTestResult
+
+   پوششِ بخش ۷۶ و ۷۷ درخواست:
+     PressureNormalizer · PressureCurve · StrokeSmoother · PathResampler
+     WidthProfile · ReferenceAnalyzer · DistanceTransform · PathMatcher
+     CoordinateTransform · StrokeReconstructor
+   به‌علاوهٔ تست‌های پذیرشِ ۱ تا ۱۴ که در محیطِ headless قابلِ سنجش‌اند.
+   ===================================================================== */
+window.__assistTestResult = (async function () {
+  const H = window.QalamHarness;
+  const out = document.getElementById('out');
+  const results = [];
+  let failures = 0;
+
+  function record(name, ok, detail) {
+    results.push({ name, ok: !!ok, detail: detail === undefined ? '' : String(detail) });
+    if (!ok) failures++;
+  }
+  const ok = (name, cond, detail) => record(name, cond, detail);
+  function near(name, a, b, tol, detail) {
+    record(name, Math.abs(a - b) <= tol, `got=${a} want=${b}±${tol} ${detail || ''}`);
+  }
+
+  H.instrument();
+  H.instrumentRaf();
+  H.buildDOM(900, 620);
+  await new Promise(r => setTimeout(r, 60));
+  await H.loadEngine('../stylus.js');
+  await H.loadEngine('../qalam-engine.js');
+  await H.loadEngine('../assist-engine.js');
+  await H.loadEngine('../reference-analyzer.js');
+  await H.loadEngine('../assist-ui.js');
+  await H.loadEngine('../app.js');
+  await new Promise(r => setTimeout(r, 200));
+
+  const A = window.QalamAssist;
+  const R = window.QalamReference;
+  const AUI = window.QalamAssistUI;
+  const T = window.__qalamTest;
+  const QE = window.QalamEngine;
+  if (!A || !R || !AUI || !T) {
+    out.textContent = 'LAYERS NOT EXPOSED';
+    return { failures: 1, results: [{ name: 'bootstrap', ok: false }] };
+  }
+  ok('BOOT all three layers are exposed', !!(A && R && AUI),
+     `assist=${A.VERSION} ref=${R.VERSION} ui=${AUI.VERSION}`);
+
+  const paper = H.paper;
+  const clearBtn = document.getElementById('clear');
+  const inkCanvas = T.inkCanvas;
+  const ictx = inkCanvas.getContext('2d');
+
+  function inkedPixels(x, y, w, h) {
+    const d = T.dims();
+    const px = Math.max(0, Math.round(x * d.dpr));
+    const py = Math.max(0, Math.round(y * d.dpr));
+    const pw = Math.min(inkCanvas.width - px, Math.round(w * d.dpr));
+    const ph = Math.min(inkCanvas.height - py, Math.round(h * d.dpr));
+    if (pw <= 0 || ph <= 0) return 0;
+    const img = ictx.getImageData(px, py, pw, ph).data;
+    let n = 0;
+    for (let i = 3; i < img.length; i += 4) if (img[i] > 8) n++;
+    return n;
+  }
+  // ضخامتِ عمودیِ خط در ستونِ x
+  function verticalExtent(x) {
+    const d = T.dims();
+    const px = Math.round(x * d.dpr);
+    if (px < 0 || px >= inkCanvas.width) return 0;
+    const img = ictx.getImageData(px, 0, 1, inkCanvas.height).data;
+    let top = -1, bot = -1;
+    for (let r = 0; r < inkCanvas.height; r++) {
+      if (img[r * 4 + 3] > 8) { if (top < 0) top = r; bot = r; }
+    }
+    return top < 0 ? 0 : (bot - top + 1) / d.dpr;
+  }
+  // میانگینِ روشناییِ پیکسل‌های جوهردار در یک ستون
+  function columnLuma(x) {
+    const d = T.dims();
+    const px = Math.round(x * d.dpr);
+    if (px < 0 || px >= inkCanvas.width) return null;
+    const img = ictx.getImageData(px, 0, 1, inkCanvas.height).data;
+    let sum = 0, n = 0;
+    for (let r = 0; r < inkCanvas.height; r++) {
+      const a = img[r * 4 + 3];
+      if (a > 60) {
+        sum += (img[r * 4] * 299 + img[r * 4 + 1] * 587 + img[r * 4 + 2] * 114) / 1000;
+        n++;
+      }
+    }
+    return n ? sum / n : null;
+  }
+
+  async function reset() {
+    clearBtn.click();
+    await H.waitFrame();
+    await H.waitFrame();
+  }
+  // تنظیمِ لایهٔ دستیار بدونِ عبور از DOM پنل (پنل هم تست جدا دارد)
+  function setA(obj) {
+    for (const k in obj) AUI.settings[k] = obj[k];
+    if (window.__qalamSyncConfig) window.__qalamSyncConfig();
+  }
+  function assistOff() {
+    setA({ intelligent_assist_enabled: false, real_ballpoint_enabled: false,
+           assist_mode: 'free', width_mode: 'pressure', training_mode: false,
+           debug_overlay: false });
+  }
+  assistOff();
+
+  /* ===================================================================
+     ۱) PressureNormalizer / PressureCurve   (بخش ۷۶ و ۷۷)
+     =================================================================== */
+  {
+    const s = A.createSettings();
+    const P = new A.PressureEngine(s);
+    const wMin = 1, wMax = 10;
+
+    // بخش ۷۷: pressure = 0 ⇒ width ≈ minWidth | pressure = 1 ⇒ maxWidth
+    near('PRESSURE width at zero pressure equals the minimum width',
+         P.widthOf(0, wMin, wMax), wMin, 1e-9);
+    near('PRESSURE width at full pressure equals the maximum width',
+         P.widthOf(1, wMin, wMax), wMax, 1e-9);
+
+    // یکنوایی
+    let mono = true, prev = -1;
+    for (let i = 0; i <= 40; i++) {
+      const w = P.widthOf(i / 40, wMin, wMax);
+      if (w < prev - 1e-9) mono = false;
+      prev = w;
+    }
+    ok('PRESSURE the width mapping is monotonic in pressure', mono);
+
+    // رفت و برگشت: pressureFor(widthOf(p)) === p
+    let maxErr = 0;
+    for (let i = 0; i <= 20; i++) {
+      const p = i / 20;
+      const w = P.widthOf(p, wMin, wMax);
+      const back = P.pressureFor(w, wMin, wMax);
+      maxErr = Math.max(maxErr, Math.abs(back.p - p));
+    }
+    ok('PRESSURE the inverse mapping round-trips within tolerance',
+       maxErr < 1e-6, `maxErr=${maxErr.toExponential(2)}`);
+
+    // بخش ۶۰: پهنای مرجع ⇒ فشارِ هدف؛ و پهنای بیرونِ توان ⇒ پرچمِ صریح
+    const outLow = P.pressureFor(wMin - 3, wMin, wMax);
+    const outHigh = P.pressureFor(wMax + 3, wMin, wMax);
+    ok('PRESSURE an unreachable target width is reported out of range',
+       outLow.outOfRange && outHigh.outOfRange &&
+       outLow.p === 0 && outHigh.p === 1,
+       `low=${JSON.stringify(outLow)} high=${JSON.stringify(outHigh)}`);
+
+    // پیش‌تنظیم‌های منحنی از هم متمایزند و ترتیبِ درست دارند
+    const at50 = name => {
+      const st = A.createSettings({ pressure_curve: name });
+      return new A.PressureEngine(st).curve(0.5);
+    };
+    const soft = at50('soft'), lin = at50('linear'), hard = at50('hard');
+    ok('PRESSURE the curve presets are ordered soft > linear > hard',
+       soft > lin && lin > hard, `soft=${soft.toFixed(3)} linear=${lin.toFixed(3)} hard=${hard.toFixed(3)}`);
+    near('PRESSURE the linear preset is the identity at mid pressure', lin, 0.5, 1e-9);
+
+    // بازهٔ مفیدِ فشار (pressure_min / pressure_max)
+    const clip = new A.PressureEngine(A.createSettings({ pressure_min: 0.2, pressure_max: 0.8 }));
+    near('PRESSURE the usable range remaps the lower bound to zero', clip.curve(0.2), 0, 1e-9);
+    near('PRESSURE the usable range remaps the upper bound to one', clip.curve(0.8), 1, 1e-9);
+    ok('PRESSURE values below the usable range clamp to zero', clip.curve(0.05) === 0);
+
+    // حساسیت: بیشتر ⇒ رسیدنِ سریع‌ترِ پهنا
+    const lo = new A.PressureEngine(A.createSettings({ pressure_sensitivity: 0.5 }));
+    const hi = new A.PressureEngine(A.createSettings({ pressure_sensitivity: 2.0 }));
+    ok('PRESSURE higher sensitivity reaches a given width sooner',
+       hi.curve(0.4) > lo.curve(0.4),
+       `hi=${hi.curve(0.4).toFixed(3)} lo=${lo.curve(0.4).toFixed(3)}`);
+  }
+
+  /* ===================================================================
+     ۲) StrokeSmoother — One Euro Filter
+     =================================================================== */
+  {
+    /* لرزشِ فیزیولوژیکِ دستِ انسان ۸–۱۲Hz است. نرخِ نمونهٔ تبلت ۲۰۰Hz.
+       سنجهٔ «دندانه‌داری» = میانگینِ |مشتقِ دومِ گسسته|، که همان چیزی است
+       که کاربر به‌عنوان «خطِ لرزان» می‌بیند. سنجهٔ «تأخیر» = عقب‌ماندنِ
+       محورِ حرکت، که بخش ۱۹ درخواست ممنوع کرده است. */
+    function run(smoothing, speedPx) {
+      const f = new A.OneEuro2D().configure(smoothing);
+      const o = { x: 0, y: 0 };
+      const ys = [], xs = [];
+      for (let i = 0; i < 300; i++) {
+        const w = 2 * Math.PI * 10 / 200;         // لرزشِ ۱۰Hz
+        const jitter = Math.sin(i * w) * 1.6 + Math.sin(i * w * 1.7 + 1.1) * 0.7;
+        f.filter(o, i * speedPx, jitter, i * 5);
+        ys.push(o.y); xs.push(o.x);
+      }
+      let rough = 0, dev = 0, lag = 0, n = 0;
+      for (let i = 2; i < ys.length; i++) {
+        if (i <= 60) continue;                     // گذارِ اولیه
+        rough += Math.abs(ys[i] - 2 * ys[i - 1] + ys[i - 2]);
+        dev += Math.abs(ys[i]);
+        lag += i * speedPx - xs[i];
+        n++;
+      }
+      return { rough: rough / n, dev: dev / n, lag: lag / n };
+    }
+    // دندانه‌داریِ خودِ سیگنالِ خام، برای مقایسه
+    let rawRough = 0, rn = 0;
+    {
+      const w = 2 * Math.PI * 10 / 200;
+      const y = i => Math.sin(i * w) * 1.6 + Math.sin(i * w * 1.7 + 1.1) * 0.7;
+      for (let i = 62; i < 300; i++) { rawRough += Math.abs(y(i) - 2 * y(i - 1) + y(i - 2)); rn++; }
+      rawRough /= rn;
+    }
+
+    const off = run(0, 1.0);
+    const mid = run(0.5, 1.0);
+    const strong = run(0.95, 1.0);
+    ok('SMOOTHER stabilisation reduces the jaggedness of hand tremor',
+       mid.rough < rawRough * 0.7,
+       `raw=${rawRough.toFixed(4)} mid=${mid.rough.toFixed(4)}`);
+    ok('SMOOTHER stronger stabilisation reduces jaggedness further',
+       strong.rough < mid.rough,
+       `mid=${mid.rough.toFixed(4)} strong=${strong.rough.toFixed(4)}`);
+    ok('SMOOTHER stabilisation reduces deviation from the intended path',
+       strong.dev < off.dev * 0.7,
+       `off=${off.dev.toFixed(3)} strong=${strong.dev.toFixed(3)}`);
+    /* ★ رگرسیونِ باگِ واقعی: با نگاشتِ *خطیِ* فرکانسِ قطع، اسلایدر در وسطِ
+       مسیرش عملاً بی‌اثر بود (کاهشِ ۴٪ در برابر ۴۵٪). این آزمون همان را
+       می‌گیرد: نیمهٔ اسلایدر باید *دیده* شود. */
+    ok('SMOOTHER the middle of the smoothing slider has a real effect',
+       mid.rough < rawRough * 0.75 && mid.rough > strong.rough,
+       `raw=${rawRough.toFixed(4)} mid=${mid.rough.toFixed(4)} strong=${strong.rough.toFixed(4)}`);
+    ok('SMOOTHER zero smoothing is effectively transparent',
+       off.rough > rawRough * 0.9, `raw=${rawRough.toFixed(4)} off=${off.rough.toFixed(4)}`);
+    /* ★ بخش ۱۹: هموارسازی نباید قلم را عقب بیندازد. اندازه‌گیریِ پیش از
+       تنظیمِ beta: یک استروکِ تند ۱۳۳px عقب می‌مانْد. */
+    const fast = run(0.95, 6.0);      // ۶px بر نمونه ≈ ۱۲۰۰px/s
+    ok('SMOOTHER a fast deliberate stroke does not lag behind the pen',
+       Math.abs(fast.lag) < 12, `lag=${fast.lag.toFixed(2)}px at 1200px/s`);
+    ok('SMOOTHER steady-state lag stays small at writing speed',
+       Math.abs(strong.lag) < 20, `lag=${strong.lag.toFixed(2)}px`);
+
+    // بازنشانی واقعاً حالت را پاک می‌کند
+    const f2 = new A.OneEuro2D().configure(0.8);
+    const o2 = { x: 0, y: 0 };
+    f2.filter(o2, 100, 100, 0);
+    f2.reset();
+    f2.filter(o2, 500, 500, 0);
+    ok('SMOOTHER reset clears filter state', o2.x === 500 && o2.y === 500,
+       `x=${o2.x} y=${o2.y}`);
+  }
+
+  /* ===================================================================
+     ۳) PathResampler / PathTools
+     =================================================================== */
+  {
+    const line = [];
+    for (let i = 0; i <= 100; i++) line.push({ x: i * 3, y: 0 });
+    const rs = A.PathTools.resample(line, 5);
+    let maxGap = 0;
+    for (let i = 1; i < rs.length; i++) {
+      maxGap = Math.max(maxGap, Math.hypot(rs[i].x - rs[i - 1].x, rs[i].y - rs[i - 1].y));
+    }
+    ok('RESAMPLER resampling honours the requested arc-length step',
+       maxGap <= 5.001, `maxGap=${maxGap.toFixed(4)}`);
+    near('RESAMPLER resampling preserves total path length',
+         A.PathTools.totalLength(rs), 300, 0.001);
+    ok('RESAMPLER the endpoint is preserved exactly',
+       rs[rs.length - 1].x === 300, `last=${rs[rs.length - 1].x}`);
+
+    // مستقل از تعدادِ نقاطِ ورودی (بخش ۱۴)
+    const coarse = [{ x: 0, y: 0 }, { x: 300, y: 0 }];
+    const rc = A.PathTools.resample(coarse, 5);
+    ok('RESAMPLER the result is independent of the input point count',
+       Math.abs(rc.length - rs.length) <= 1, `dense=${rs.length} coarse=${rc.length}`);
+
+    // هموارسازیِ polyline: دو سر ثابت می‌مانند
+    const zig = [];
+    for (let i = 0; i < 40; i++) zig.push({ x: i * 4, y: (i % 2) * 8 });
+    const sm = A.PathTools.smooth(zig, 4);
+    ok('RESAMPLER polyline smoothing keeps both endpoints fixed',
+       sm[0].x === zig[0].x && sm[0].y === zig[0].y &&
+       sm[sm.length - 1].y === zig[zig.length - 1].y);
+    let vRaw = 0, vSm = 0;
+    for (let i = 1; i < zig.length; i++) {
+      vRaw += Math.abs(zig[i].y - zig[i - 1].y);
+      vSm += Math.abs(sm[i].y - sm[i - 1].y);
+    }
+    ok('RESAMPLER polyline smoothing reduces total variation',
+       vSm < vRaw * 0.5, `raw=${vRaw.toFixed(1)} smooth=${vSm.toFixed(1)}`);
+  }
+
+  /* ===================================================================
+     ۴) WidthProfile   (بخش ۲۶ و ۷۷)
+     =================================================================== */
+  {
+    const ts = new Float32Array([0, 0.25, 0.5, 0.75, 1]);
+    const ws = new Float32Array([1, 4, 10, 4, 1]);
+    const wp = new A.WidthProfile(ts, ws);
+    near('PROFILE sampling at a knot returns that knot value', wp.sample(0.5), 10, 1e-6);
+    near('PROFILE sampling interpolates linearly between knots',
+         wp.sample(0.375), 7, 1e-5);
+    ok('PROFILE sampling clamps outside the normalised range',
+       wp.sample(-1) === 1 && wp.sample(2) === 1);
+    near('PROFILE the profile reports its own extrema', wp.max(), 10, 1e-6);
+    near('PROFILE scaling multiplies every width', wp.scaled(2).sample(0.5), 20, 1e-5);
+
+    /* t نرمال‌شده ⇒ مستقل از رزولوشن. همان پروفایل در دو مقیاسِ مختلف
+       باید *نسبت‌های* یکسان بدهد (بخش ۲۶). */
+    const hi = wp.scaled(3);
+    near('PROFILE normalised t keeps the profile resolution independent',
+         hi.sample(0.25) / hi.sample(0.5), wp.sample(0.25) / wp.sample(0.5), 1e-6);
+
+    // ساخت از طولِ قوس: t باید ۰..۱ شود
+    const arcs = new Float32Array([0, 10, 20, 40]);
+    const w2 = new Float32Array([2, 3, 4, 5]);
+    const fp = A.WidthProfile.fromArc(arcs, w2);
+    ok('PROFILE building from arc length normalises t to zero and one',
+       fp.ts[0] === 0 && Math.abs(fp.ts[3] - 1) < 1e-6 &&
+       Math.abs(fp.ts[1] - 0.25) < 1e-6, `ts=${Array.from(fp.ts).join(',')}`);
+
+    // هموارسازی: پرتِ یک‌نمونه‌ای باید کوبیده شود، روندِ کلی بمانَد
+    const n = 60;
+    const t3 = new Float32Array(n), w3 = new Float32Array(n);
+    for (let i = 0; i < n; i++) { t3[i] = i / (n - 1); w3[i] = 5 + 3 * Math.sin(Math.PI * t3[i]); }
+    const spikeAt = 30, before = w3[spikeAt];
+    w3[spikeAt] = 40;
+    const sp = new A.WidthProfile(t3, w3).smooth(2);
+    ok('PROFILE smoothing suppresses a single-sample outlier',
+       Math.abs(sp.ws[spikeAt] - before) < 1.0,
+       `spike=40 smoothed=${sp.ws[spikeAt].toFixed(2)} expected≈${before.toFixed(2)}`);
+    let smoothOk = true;
+    for (let i = 1; i < n; i++) if (Math.abs(sp.ws[i] - sp.ws[i - 1]) > 0.8) smoothOk = false;
+    ok('PROFILE the smoothed profile has no abrupt width jumps', smoothOk);
+  }
+
+  /* ===================================================================
+     ۵) DistanceTransform  (بخش ۷۶)
+     =================================================================== */
+  {
+    // دیسکِ پرِ شعاع ۱۰ در مرکزِ بومِ ۶۰×۶۰: EDT مرکز باید ≈ شعاع باشد
+    const W = 60, H = 60, cx = 30, cy = 30, rad = 10;
+    const mask = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (Math.hypot(x - cx, y - cy) <= rad) mask[y * W + x] = 1;
+      }
+    }
+    const edt = R.distanceTransform(mask, W, H);
+    near('EDT the distance at a disc centre equals its radius',
+         edt[cy * W + cx], rad + 0.5, 1.05, '(نصف‌پیکسل خطای گسسته‌سازی)');
+    ok('EDT background pixels have zero distance', edt[0] === 0);
+    ok('EDT a boundary pixel has a distance near one',
+       edt[cy * W + (cx + rad)] <= 1.5,
+       `d=${edt[cy * W + (cx + rad)].toFixed(2)}`);
+
+    /* دقتِ اقلیدسی: روی یک نوارِ قطری، chamfer تقریبی تا ~۵٪ خطا دارد.
+       این‌جا فاصله تا مرز باید *دقیقاً* اقلیدسی باشد. */
+    const S = 41, half = 20;
+    const m2 = new Uint8Array(S * S).fill(1);
+    for (let i = 0; i < S; i++) { m2[i] = 0; m2[(S - 1) * S + i] = 0; m2[i * S] = 0; m2[i * S + S - 1] = 0; }
+    const e2 = R.distanceTransform(m2, S, S);
+    near('EDT the transform is exactly Euclidean, not an approximation',
+         e2[half * S + half], half, 0.001);
+  }
+
+  /* ===================================================================
+     ۶) ReferenceAnalyzer  (بخش ۷۶، تست پذیرش ۳ و ۱۳)
+     =================================================================== */
+  let refAnalysis = null;
+  {
+    // خطِ افقیِ نازک → کلفت → نازک، مثل یک Stroke خوشنویسی
+    function makeStrokeImage(w, h, dark, noise) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const g = c.getContext('2d', { willReadFrequently: true });
+      g.fillStyle = dark ? '#ffffff' : '#101010';
+      g.fillRect(0, 0, w, h);
+      g.fillStyle = dark ? '#141414' : '#f4f4f4';
+      const y0 = h / 2, x0 = w * 0.1, x1 = w * 0.9;
+      for (let x = x0; x < x1; x += 0.5) {
+        const u = (x - x0) / (x1 - x0);
+        const hw = 1 + 8 * Math.sin(Math.PI * u);        // پهنا 2 → 18 → 2
+        g.fillRect(x, y0 - hw, 1, hw * 2);
+      }
+      if (noise) {
+        // نویزِ نمکی‌فلفلیِ قطعی — نه تصادفی، تا تست تکرارپذیر بمانَد
+        for (let i = 0; i < w * h * 0.02; i++) {
+          const hx = A.hash1(i, 991), hy = A.hash1(i, 337);
+          g.fillStyle = (i & 1) ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)';
+          g.fillRect((hx * w) | 0, (hy * h) | 0, 2, 2);
+        }
+      }
+      return g.getImageData(0, 0, w, h).data;
+    }
+
+    const W = 400, H = 200;
+    refAnalysis = await R.analyze(makeStrokeImage(W, H, true, false), W, H);
+    ok('REFERENCE analysis extracts a single connected stroke',
+       refAnalysis.ok && refAnalysis.strokes.length === 1,
+       `ok=${refAnalysis.ok} strokes=${refAnalysis.strokes.length}`);
+    ok('REFERENCE the ink polarity is detected as dark on light',
+       refAnalysis.inkIsDark === true);
+    ok('REFERENCE confidence is high for a clean synthetic stroke',
+       refAnalysis.confidence > 0.75, `confidence=${refAnalysis.confidence.toFixed(3)}`);
+
+    const s0 = refAnalysis.strokes[0];
+    // تستِ پذیرشِ ۳: پروفایل باید نازک → کلفت → نازک باشد
+    const wAt = t => s0.widths[Math.round(t * (s0.widths.length - 1))];
+    ok('REFERENCE the width profile is thin, then thick, then thin',
+       wAt(0.5) > wAt(0.1) * 1.8 && wAt(0.5) > wAt(0.9) * 1.8,
+       `w10=${wAt(0.1).toFixed(1)} w50=${wAt(0.5).toFixed(1)} w90=${wAt(0.9).toFixed(1)}`);
+    near('REFERENCE the measured peak width matches the drawn width',
+         wAt(0.5), 18, 3.0, '(کشیده‌شده ۱۸px)');
+    ok('REFERENCE the centreline runs along the drawn baseline',
+       Math.abs(s0.points[0].y - H / 2) < 4 &&
+       Math.abs(s0.points[s0.points.length - 1].y - H / 2) < 4,
+       `y0=${s0.points[0].y.toFixed(1)} y1=${s0.points[s0.points.length - 1].y.toFixed(1)}`);
+    ok('REFERENCE normalised t spans zero to one', s0.ts[0] === 0 &&
+       Math.abs(s0.ts[s0.ts.length - 1] - 1) < 1e-6);
+
+    // قطبیتِ معکوس: مرکبِ روشن روی زمینهٔ تیره
+    const inv = await R.analyze(makeStrokeImage(W, H, false, false), W, H);
+    ok('REFERENCE light ink on a dark background is analysed correctly',
+       inv.ok && inv.strokes.length === 1 && inv.inkIsDark === false,
+       `ok=${inv.ok} strokes=${inv.strokes.length} inkIsDark=${inv.inkIsDark}`);
+
+    // تستِ پذیرشِ ۱۳: مرجعِ پرنویز نباید Crash کند
+    let noisy = null, threw = false;
+    try { noisy = await R.analyze(makeStrokeImage(W, H, true, true), W, H); }
+    catch (e) { threw = true; }
+    ok('REFERENCE a noisy reference does not throw', !threw);
+    ok('REFERENCE a noisy reference still yields a usable analysis',
+       !!(noisy && noisy.ok), `ok=${noisy && noisy.ok}`);
+    ok('REFERENCE noise lowers the reported confidence',
+       noisy && noisy.confidence < refAnalysis.confidence,
+       `clean=${refAnalysis.confidence.toFixed(3)} noisy=${noisy && noisy.confidence.toFixed(3)}`);
+
+    // تصویرِ خالی: نه Crash، نه ادعای اعتماد
+    const blank = document.createElement('canvas');
+    blank.width = 40; blank.height = 40;
+    const bg = blank.getContext('2d', { willReadFrequently: true });
+    bg.fillStyle = '#fff'; bg.fillRect(0, 0, 40, 40);
+    const empty = await R.analyze(bg.getImageData(0, 0, 40, 40).data, 40, 40);
+    ok('REFERENCE a blank image reports no strokes and zero confidence',
+       !empty.ok && empty.strokes.length === 0 && empty.confidence === 0,
+       `ok=${empty.ok} conf=${empty.confidence}`);
+
+    // کش: تحلیلِ دوباره نباید تکرار شود
+    const cache = new R.ReferenceCache();
+    const key = {};
+    const o = R.createOptions();
+    cache.set(key, W, H, o, refAnalysis);
+    ok('REFERENCE the analysis cache returns the stored analysis',
+       cache.get(key, W, H, o) === refAnalysis && cache.hits === 1);
+    ok('REFERENCE the cache misses when the analysis size changes',
+       cache.get(key, W + 1, H, o) === null, `misses=${cache.misses}`);
+  }
+
+  /* ===================================================================
+     ۷) PathMatcher  (بخش ۱۴ و ۱۵)
+     =================================================================== */
+  {
+    // Centerline مصنوعی: خطِ افقی از x=100 تا x=400 روی y=200
+    function makeRefStroke(reversed) {
+      const n = 200, pts = [], widths = new Float32Array(n);
+      const ts = new Float32Array(n), tangents = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const u = i / (n - 1);
+        const x = reversed ? 400 - 300 * u : 100 + 300 * u;
+        pts.push({ x: x, y: 200 });
+        widths[i] = 2 + 8 * Math.sin(Math.PI * (reversed ? 1 - u : u));
+        ts[i] = u;
+        tangents[i] = reversed ? Math.PI : 0;
+      }
+      const grid = new A.SpatialGrid(8);
+      for (let i = 0; i < n; i++) grid.add(pts[i].x, pts[i].y, i);
+      return { points: pts, widths, ts, tangents, grid, meanWidth: 6,
+               length: 300, backLimit: 20 };
+    }
+
+    const fwd = makeRefStroke(false);
+    const m = new A.PathMatcher();
+    ok('MATCHER a stroke starting near the reference is picked',
+       m.pick([fwd], 102, 205, 30) === fwd);
+    ok('MATCHER a stroke starting far away is not picked',
+       new A.PathMatcher().pick([fwd], 102, 600, 30) === null);
+
+    const q = { found: false };
+    m.project(q, 150, 208, 30);
+    ok('MATCHER projection lands on the reference centreline',
+       q.found && Math.abs(q.y - 200) < 1e-6 && Math.abs(q.x - 150) < 2,
+       `x=${q.x} y=${q.y}`);
+    ok('MATCHER projection reports the local reference width',
+       q.width > 2 && q.width <= 10.001, `width=${q.width.toFixed(2)}`);
+
+    /* بخش ۱۴: نباید به تعدادِ نمونه‌های کاربر وابسته باشد. همان مسیر با
+       دو چگالیِ متفاوت باید همان t نهایی را بدهد. */
+    function walk(step, refStroke) {
+      const mm = new A.PathMatcher();
+      mm.pick([refStroke], 100, 200, 30);
+      const o = { found: false };
+      let lastT = 0;
+      for (let x = 100; x <= 400; x += step) {
+        mm.project(o, x, 200 + Math.sin(x * 0.3) * 3, 30);
+        if (o.found) lastT = o.t;
+      }
+      return { t: lastT, cov: mm.coverage() };
+    }
+    const dense = walk(1, fwd), sparse = walk(9, fwd);
+    near('MATCHER the final parameter is independent of sample density',
+         dense.t, sparse.t, 0.02, `dense=${dense.t.toFixed(3)} sparse=${sparse.t.toFixed(3)}`);
+    ok('MATCHER coverage is complete for a well-traced path',
+       dense.cov > 0.98 && sparse.cov > 0.98,
+       `dense=${dense.cov.toFixed(3)} sparse=${sparse.cov.toFixed(3)}`);
+
+    /* ★ رگرسیونِ باگِ واقعی: ترتیبِ نقاطِ Centerline از اسکلت دلبخواه است.
+       اگر جهت از حرکتِ کاربر استنتاج نشود، پیمایشِ «برعکسِ ایندکس» کاملاً
+       رد می‌شود. اندازه‌گیریِ پیش از رفع: coverage ≈ 0.01 */
+    const rev = makeRefStroke(true);
+    const revWalk = walk(3, rev);
+    ok('MATCHER tracing against the stored index order still matches',
+       revWalk.cov > 0.9, `coverage=${revWalk.cov.toFixed(3)}`);
+    near('MATCHER a reversed centreline still reaches the far end',
+         revWalk.t, 0, 0.05, `t=${revWalk.t.toFixed(3)}`);
+
+    // خارج از Tolerance ⇒ تطبیق نمی‌شود (بخش ۱۵)
+    const far = new A.PathMatcher();
+    far.pick([fwd], 100, 200, 30);
+    const o2 = { found: false };
+    far.project(o2, 250, 400, 30);
+    ok('MATCHER a point beyond tolerance is reported as unmatched', !o2.found);
+  }
+
+  /* ===================================================================
+     ۸) SpatialGrid
+     =================================================================== */
+  {
+    const g = new A.SpatialGrid(10);
+    for (let i = 0; i < 500; i++) g.add(i * 2, 100 + (i % 7), i);
+    const o = { found: false };
+    g.nearest(o, 300, 103, 20);
+    ok('GRID nearest returns the closest stored point',
+       o.found && Math.abs(o.x - 300) <= 2, `x=${o.x} dist=${o.dist.toFixed(2)}`);
+    g.nearest(o, 300, 999, 20);
+    ok('GRID nearest respects the search radius', !o.found);
+    // برابریِ نتیجه با جست‌وجوی خام
+    let bi = -1, bd = Infinity;
+    for (let i = 0; i < 500; i++) {
+      const d = Math.hypot(i * 2 - 137, (100 + (i % 7)) - 101);
+      if (d < bd) { bd = d; bi = i; }
+    }
+    g.nearest(o, 137, 101, 40);
+    ok('GRID the grid result matches an exhaustive search',
+       o.found && o.data === bi, `grid=${o.data} brute=${bi}`);
+  }
+
+  /* ===================================================================
+     ۹) Ballpoint physics  (بخش ۹۳–۹۹، ۱۰۰، ۱۲۱)
+     =================================================================== */
+  {
+    const s = A.createSettings({ real_ballpoint_enabled: true });
+    function drive(opts) {
+      const b = new A.BallpointState();
+      const rec = [];
+      const n = opts.n || 120;
+      for (let i = 0; i < n; i++) {
+        A.stepBallpoint(b, s, {
+          pressure: opts.pressure === undefined ? 0.6 : opts.pressure,
+          speed: opts.speed === undefined ? 0.42 : opts.speed,
+          dwellMs: opts.dwellMs || 0,
+          turn: opts.turn || 0,
+          arcLen: i * (opts.step === undefined ? 1.2 : opts.step),
+          lean: 0, dtMs: 8, velocityRef: 0.42, pxPerMm: 96 / 25.4,
+        });
+        rec.push({ cov: b.coverage, w: b.widthMul, ink: b.tipInk,
+                   gap: b.gap, build: b.buildUp, contact: b.contact,
+                   dep: b.deposition });
+      }
+      return rec;
+    }
+
+    // بخش ۱۱۶: شروع نباید فوراً با تماسِ کامل باشد (رمپِ ساچمه)
+    const normal = drive({});
+    ok('BALLPOINT ball contact ramps up instead of starting saturated',
+       normal[0].contact < normal[normal.length - 1].contact * 0.75,
+       `first=${normal[0].contact.toFixed(3)} steady=${normal[normal.length - 1].contact.toFixed(3)}`);
+    let contactMono = true;
+    for (let i = 1; i < 25; i++) if (normal[i].contact < normal[i - 1].contact - 1e-9) contactMono = false;
+    ok('BALLPOINT the contact ramp is monotonic and smooth', contactMono);
+
+    // بخش ۹۶: فشارِ بیشتر ⇒ پوششِ بیشتر
+    const light = drive({ pressure: 0.15 });
+    const heavy = drive({ pressure: 0.95 });
+    const tail = a => a[a.length - 1];
+    ok('BALLPOINT higher pressure yields higher ink coverage',
+       tail(heavy).cov > tail(light).cov,
+       `light=${tail(light).cov.toFixed(3)} heavy=${tail(heavy).cov.toFixed(3)}`);
+
+    // بخش ۹۶: حرکتِ تند ⇒ مخزنِ نوک خالی‌تر ⇒ پوششِ کمتر
+    const fast = drive({ speed: 1.9, step: 5 });
+    const slow = drive({ speed: 0.10, step: 0.3 });
+    ok('BALLPOINT fast movement drains the tip reservoir',
+       tail(fast).ink < tail(slow).ink,
+       `fast=${tail(fast).ink.toFixed(3)} slow=${tail(slow).ink.toFixed(3)}`);
+    ok('BALLPOINT slower movement deposits more ink per unit length',
+       tail(slow).dep > tail(fast).dep,
+       `slow=${tail(slow).dep.toFixed(3)} fast=${tail(fast).dep.toFixed(3)}`);
+
+    // بخش ۹۷: توقف ⇒ تجمعِ جوهر، ولی کران‌دار (نه لکه)
+    const dwell = drive({ speed: 0.01, dwellMs: 400, step: 0.02 });
+    ok('BALLPOINT dwelling produces ink build-up',
+       tail(dwell).build > 0.15, `buildUp=${tail(dwell).build.toFixed(3)}`);
+    ok('BALLPOINT ink build-up stays bounded and never becomes a blot',
+       tail(dwell).build <= 1.0 && tail(dwell).w < 1.35,
+       `buildUp=${tail(dwell).build.toFixed(3)} widthMul=${tail(dwell).w.toFixed(3)}`);
+
+    // بخش ۱۱۵: پیچِ تند ⇒ کمی تجمع، ولی گوشه لکه نمی‌شود
+    const corner = drive({ turn: Math.PI * 0.9, speed: 0.2 });
+    ok('BALLPOINT a sharp direction change adds a little build-up',
+       tail(corner).build > tail(normal).build,
+       `corner=${tail(corner).build.toFixed(3)} normal=${tail(normal).build.toFixed(3)}`);
+
+    // بخش ۹۸: شکافِ جوهر پیش‌فرض تقریباً خاموش است
+    let gapsNormal = 0;
+    for (const r of normal) if (r.gap) gapsNormal++;
+    ok('BALLPOINT ink gaps are effectively off at default settings',
+       gapsNormal === 0, `gaps=${gapsNormal}`);
+    const dryS = A.createSettings({ real_ballpoint_enabled: true, ink_dryness: 0.9, ink_flow: 0.5 });
+    const bDry = new A.BallpointState();
+    let gapsDry = 0;
+    for (let i = 0; i < 400; i++) {
+      A.stepBallpoint(bDry, dryS, {
+        pressure: 0.5, speed: 2.4, dwellMs: 0, turn: 0, arcLen: i * 6,
+        lean: 0, dtMs: 8, velocityRef: 0.42, pxPerMm: 96 / 25.4,
+      });
+      if (bDry.gap) gapsDry++;
+    }
+    ok('BALLPOINT a dry pen moving fast can produce occasional gaps',
+       gapsDry > 0 && gapsDry < 400 * 0.5,
+       `gaps=${gapsDry}/400`);
+
+    // بخش ۹۲ و ۱۲۱: ریزنوسان وجود دارد ولی کوچک است
+    const covs = normal.slice(20).map(r => r.cov);
+    const cmin = Math.min.apply(null, covs), cmax = Math.max.apply(null, covs);
+    ok('BALLPOINT coverage varies along the stroke rather than being flat',
+       cmax - cmin > 0.004, `range=${(cmax - cmin).toFixed(4)}`);
+    const ws = normal.slice(20).map(r => r.w);
+    ok('BALLPOINT the width micro-variation stays small',
+       Math.max.apply(null, ws) - Math.min.apply(null, ws) < 0.10,
+       `range=${(Math.max.apply(null, ws) - Math.min.apply(null, ws)).toFixed(4)}`);
+
+    /* ★ بخش ۱۰۰: هیچ Noise تصادفی. دو اجرای یکسان باید *بیت‌به‌بیت* یکی
+       باشند، وگرنه «رسمِ زنده = بازترسیمِ کامل» پروژه می‌شکند. */
+    const runA = drive({}), runB = drive({});
+    let identical = true;
+    for (let i = 0; i < runA.length; i++) {
+      if (runA[i].cov !== runB[i].cov || runA[i].w !== runB[i].w) identical = false;
+    }
+    ok('BALLPOINT the model is deterministic — no random noise', identical);
+
+    // نویز تابعِ *مکان/طولِ قوس* است، نه شمارندهٔ نمونه
+    ok('BALLPOINT natural variation is a function of arc length',
+       A.fbm1(3.25, 7717) === A.fbm1(3.25, 7717) &&
+       A.fbm1(3.25, 7717) !== A.fbm1(4.75, 7717));
+    let noiseInRange = true;
+    for (let i = 0; i < 500; i++) {
+      const v = A.fbm1(i * 0.37, 11);
+      if (v < -1.001 || v > 1.001) noiseInRange = false;
+    }
+    ok('BALLPOINT the deterministic noise stays within its declared range', noiseInRange);
+    // پیوستگی: نویز نباید پله داشته باشد
+    let maxStep = 0;
+    for (let i = 1; i < 2000; i++) {
+      maxStep = Math.max(maxStep, Math.abs(A.fbm1(i * 0.01, 5) - A.fbm1((i - 1) * 0.01, 5)));
+    }
+    ok('BALLPOINT the noise is spatially coherent, not white',
+       maxStep < 0.12, `maxStep=${maxStep.toFixed(4)}`);
+  }
+
+  /* ===================================================================
+     ۱۰) PaperModel
+     =================================================================== */
+  {
+    const rough = new A.PaperModel(A.createSettings({ paper_roughness: 0.9 }));
+    const smooth = new A.PaperModel(A.createSettings({ paper_roughness: 0.05 }));
+    let ar = 0, as = 0;
+    for (let i = 0; i < 400; i++) {
+      ar += Math.abs(rough.grainAt(i * 1.7, i * 0.9, 3.78, 1));
+      as += Math.abs(smooth.grainAt(i * 1.7, i * 0.9, 3.78, 1));
+    }
+    ok('PAPER rough paper produces more grain than smooth paper', ar > as * 3,
+       `rough=${(ar / 400).toFixed(4)} smooth=${(as / 400).toFixed(4)}`);
+    const zero = new A.PaperModel(A.createSettings({ paper_roughness: 0 }));
+    ok('PAPER zero roughness produces no grain at all',
+       zero.grainAt(11, 22, 3.78, 1) === 0);
+    /* بخش ۱۲۸: بافت نباید وابسته به رزولوشن باشد — همان نقطهٔ فیزیکی در دو
+       DPI مختلف باید همان دانه را بدهد. */
+    const p = new A.PaperModel(A.createSettings({ paper_roughness: 0.5 }));
+    near('PAPER the grain is defined in physical units, not pixels',
+         p.grainAt(10, 10, 3.78, 7), p.grainAt(20, 20, 7.56, 7), 1e-9);
+    // پیش‌تنظیم‌های کاغذ از هم متمایزند
+    const sA = A.createSettings();
+    A.applyPaperType(sA, 'rough');
+    const sB = A.createSettings();
+    A.applyPaperType(sB, 'smooth');
+    ok('PAPER presets differ in roughness and absorption',
+       sA.paper_roughness > sB.paper_roughness &&
+       sA.paper_absorption > sB.paper_absorption);
+  }
+
+  /* ===================================================================
+     ۱۱) StrokeReconstructor  (بخش ۷۶، ۱۱۶–۱۱۸)
+     =================================================================== */
+  {
+    function makeRecs(n, w) {
+      const recs = [];
+      for (let i = 0; i < n; i++) {
+        const nw = 12;
+        const half = w / (nw * 0.5) / 2;
+        recs.push({
+          x: 100 + i * 3, y: 200,
+          nw: nw, uh: -half, ut: half, hs: 1,
+          cw: nw * 0.5 * (half * 2), ct: 2, co: 0, pl: 0.5, t: 1,
+        });
+      }
+      return recs;
+    }
+    // بی‌تیپر، بی‌هموارسازی ⇒ هیچ تغییری
+    const s0 = A.createSettings({ start_taper: 0, end_taper: 0 });
+    const r0 = makeRecs(40, 6);
+    const before0 = r0.map(r => r.cw);
+    A.finalizeStroke(r0, s0, { smoothWidth: false, taper: false });
+    ok('RECONSTRUCTOR with both stages disabled nothing changes',
+       r0.every((r, i) => r.cw === before0[i]));
+
+    /* هموارسازی: پرتِ یک‌نمونه‌ای باید به‌سوی همسایه‌ها کشیده شود.
+       کرنلِ دوجمله‌ایِ ۵ نمونه‌ای (۱ ۴ ۶ ۴ ۱)/۱۶ وزنِ مرکز را ۶/۱۶ می‌گذارد،
+       پس یک پرتِ سه‌برابری به 6/16·3w + 10/16·w = 1.75w می‌رسد، نه به w.
+       معیارِ درست «چقدر از پرت به‌سوی زمینه برگشت» است، نه یک نسبتِ دلبخواه:
+       باید بیش از نیمِ فاصله را برگردد. */
+    const r1 = makeRecs(60, 6);
+    const spikeIdx = 30;
+    const baseW = r1[spikeIdx].cw;
+    A.scaleRecordWidth(r1[spikeIdx], 3.0, 1);
+    const spiked = r1[spikeIdx].cw;
+    A.finalizeStroke(r1, s0, { smoothWidth: true, taper: false });
+    const recovered = (spiked - r1[spikeIdx].cw) / (spiked - baseW);
+    ok('RECONSTRUCTOR width smoothing pulls a single-sample spike back',
+       recovered > 0.55,
+       `base=${baseW.toFixed(2)} spiked=${spiked.toFixed(2)} ` +
+       `smoothed=${r1[spikeIdx].cw.toFixed(2)} recovered=${(recovered * 100).toFixed(0)}%`);
+    ok('RECONSTRUCTOR smoothing spreads the spike into its neighbours',
+       r1[spikeIdx - 1].cw > baseW * 1.05 && r1[spikeIdx - 1].cw < r1[spikeIdx].cw,
+       `n-1=${r1[spikeIdx - 1].cw.toFixed(2)} n=${r1[spikeIdx].cw.toFixed(2)}`);
+    let noJump = true;
+    for (let i = 1; i < r1.length; i++) {
+      if (Math.abs(r1[i].cw - r1[i - 1].cw) > 1.2) noJump = false;
+    }
+    ok('RECONSTRUCTOR the reconstructed width has no abrupt jumps', noJump);
+
+    // Taper: سر باریک‌تر از میانه
+    const s2 = A.createSettings({ start_taper: 0.6, end_taper: 0.7 });
+    const r2 = makeRecs(60, 6);
+    const bb = A.finalizeStroke(r2, s2, { smoothWidth: true, taper: true });
+    ok('RECONSTRUCTOR the start taper thins the beginning of the stroke',
+       r2[0].cw < r2[30].cw * 0.75,
+       `start=${r2[0].cw.toFixed(2)} mid=${r2[30].cw.toFixed(2)}`);
+    ok('RECONSTRUCTOR the end taper is delegated when requested',
+       (() => {
+         const r3 = makeRecs(60, 6);
+         A.finalizeStroke(r3, s2, { smoothWidth: true, taper: true, taperEnd: false });
+         return r3[59].cw > r3[0].cw;
+       })(), 'taperEnd:false leaves the tail to applyTailTaper');
+    ok('RECONSTRUCTOR a dirty rectangle is returned when widths change',
+       bb && bb.w > 0 && bb.h > 0, JSON.stringify(bb));
+
+    // scaleRecordWidth باید قرارداد رکورد را حفظ کند
+    const rec = makeRecs(1, 6)[0];
+    A.scaleRecordWidth(rec, 2, 1);
+    near('RECONSTRUCTOR record scaling keeps cw consistent with the u-interval',
+         rec.cw, rec.nw * 0.5 * (rec.ut - rec.uh), 1e-6);
+    near('RECONSTRUCTOR record scaling keeps co consistent with the u-interval',
+         rec.co, (rec.uh + rec.ut) * 0.5 * rec.nw * 0.5, 1e-6);
+    near('RECONSTRUCTOR record scaling keeps t at half the thickness',
+         rec.t, rec.ct * 0.5, 1e-6);
+    ok('RECONSTRUCTOR the u-interval never escapes its valid range',
+       rec.uh >= -1 && rec.ut <= 1);
+    // با heelLift = 0 بازه باید حولِ مرکز متقارن بمانَد
+    const rec0 = makeRecs(1, 6)[0];
+    const uc0 = (rec0.uh + rec0.ut) * 0.5;
+    A.scaleRecordWidth(rec0, 1.5, 0);
+    near('RECONSTRUCTOR with no heel lift the contact interval stays centred',
+         (rec0.uh + rec0.ut) * 0.5, uc0, 1e-6);
+  }
+
+  /* ===================================================================
+     ۱۲) CoordinateTransform  (بخش ۷۲، ۷۳، ۷۴)
+     =================================================================== */
+  {
+    const d = T.dims();
+    // تصویرِ مرجعِ مصنوعی با نسبتِ ابعادِ متفاوت از بوم
+    const img = document.createElement('canvas');
+    img.width = 200; img.height = 400;
+    const g = img.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, 200, 400);
+
+    T.setCustomImage(img);
+    const fit = T.imageFit();
+    ok('COORDS the image fit is reported for the loaded reference', !!fit);
+    // پوشش: باید کلِ بوم را بپوشاند
+    ok('COORDS the reference is fitted with cover semantics',
+       fit.dw >= d.W - 1e-6 && fit.dh >= d.H - 1e-6,
+       `dw=${fit.dw.toFixed(1)} dh=${fit.dh.toFixed(1)} W=${d.W} H=${d.H}`);
+    near('COORDS the cover scale is the larger of the two axis ratios',
+         fit.s, Math.max(d.W / 200, d.H / 400), 1e-9);
+    // مرکزچین
+    near('COORDS the fitted image is centred horizontally',
+         fit.ox + fit.dw / 2, d.W / 2, 1e-6);
+    near('COORDS the fitted image is centred vertically',
+         fit.oy + fit.dh / 2, d.H / 2, 1e-6);
+    // نسبتِ ابعاد حفظ می‌شود
+    near('COORDS the aspect ratio of the reference is preserved',
+         fit.dw / fit.dh, 200 / 400, 1e-9);
+
+    /* رفت و برگشتِ analysis → canvas → analysis، با همان جبری که
+       assist-ui از آن استفاده می‌کند. */
+    const aw = 100;                       // بومِ تحلیلِ فرضی: 100×200
+    const k = fit.iw / aw;
+    const kS = k * fit.s;
+    const toCanvas = (ax, ay) => ({ x: fit.ox + ax * kS, y: fit.oy + ay * kS });
+    const toAnalysis = (x, y) => ({ x: (x - fit.ox) / kS, y: (y - fit.oy) / kS });
+    let maxErr = 0;
+    for (let i = 0; i <= 20; i++) {
+      const ax = i * 5, ay = i * 10;
+      const c = toCanvas(ax, ay);
+      const b = toAnalysis(c.x, c.y);
+      maxErr = Math.max(maxErr, Math.hypot(b.x - ax, b.y - ay));
+    }
+    ok('COORDS the analysis-to-canvas transform round-trips exactly',
+       maxErr < 1e-9, `maxErr=${maxErr.toExponential(2)}`);
+    // پهنا با همان ضریب مقیاس می‌شود
+    near('COORDS widths scale with the same factor as positions',
+         10 * kS, toCanvas(10, 0).x - toCanvas(0, 0).x, 1e-9);
+    ok('COORDS no monitor resolution is assumed to be equal',
+       fit.s !== 1 || d.W === 200, 'cover scale derives from live W/H');
+
+    T.setCustomImage(null);
+  }
+
+  /* ===================================================================
+     ۱۳) ادغامِ زنده — تست‌های پذیرشِ ۱، ۴، ۸، ۹، ۱۰، ۱۱
+     =================================================================== */
+  {
+    // ---- تستِ پذیرشِ ۸ (بخش ۶۳ و ۸۵): Assist خاموش = رفتارِ قبل ----
+    assistOff();
+    await reset();
+    const zig = H.pathZigzag(150, 300, 400, 9, 160, () => 0.7, 5);
+    await H.playStroke(zig, { hz: 200, framesPerSec: 60 });
+    const offRecs = T.strokes.length ? T.strokes[T.strokes.length - 1].slice() : [];
+    const offInk = inkedPixels(100, 240, 520, 130);
+    ok('REGRESSION with assist off a stroke is still produced',
+       offRecs.length > 20 && offInk > 400,
+       `samples=${offRecs.length} inked=${offInk}`);
+    ok('REGRESSION with assist off no sample is marked as an ink gap',
+       offRecs.every(r => !r.skip));
+    ok('REGRESSION with assist off the assist layer reports itself inactive',
+       AUI.enabled === false && AUI.assistEnabled === false &&
+       AUI.ballpointEnabled === false);
+
+    /* ★ بیت‌به‌بیت: همان مسیر با لایهٔ بارگذاری‌شده‌ی *خاموش* باید دقیقاً
+       همان هندسه را بدهد. این قوی‌ترین شکلِ تضمینِ «بدونِ رگرسیون» است. */
+    await reset();
+    await H.playStroke(zig, { hz: 200, framesPerSec: 60 });
+    const offRecs2 = T.strokes.length ? T.strokes[T.strokes.length - 1] : [];
+    let bitIdentical = offRecs.length === offRecs2.length;
+    if (bitIdentical) {
+      for (let i = 0; i < offRecs.length; i++) {
+        const a = offRecs[i], b = offRecs2[i];
+        if (a.x !== b.x || a.y !== b.y || a.cw !== b.cw || a.ct !== b.ct ||
+            a.uh !== b.uh || a.ut !== b.ut || a.dens !== b.dens ||
+            a.inkAmt !== b.inkAmt) { bitIdentical = false; break; }
+      }
+    }
+    ok('REGRESSION replaying the same input with assist off is deterministic',
+       bitIdentical, `n1=${offRecs.length} n2=${offRecs2.length}`);
+
+    // ---- تستِ پذیرشِ ۱ (بخش ۵۶): پایدارسازیِ لرزشِ دست ----
+    function tremorPath() {
+      // خطِ افقی + لرزشِ عمدیِ ریز
+      const out = [];
+      const t0 = performance.now();
+      for (let i = 0; i < 200; i++) {
+        const u = i / 199;
+        out.push({
+          x: 150 + 400 * u,
+          y: 300 + Math.sin(i * 2.7) * 2.4 + Math.sin(i * 5.3) * 1.1,
+          pressure: 0.65,
+          t: t0 + i * 5,
+        });
+      }
+      return out;
+    }
+    function pathRoughness(recs) {
+      // مجموعِ |تغییرِ زاویهٔ گام| — سنجهٔ «دندانه‌داری»
+      let sum = 0, n = 0, prev = null;
+      for (let i = 1; i < recs.length; i++) {
+        const dx = recs[i].x - recs[i - 1].x, dy = recs[i].y - recs[i - 1].y;
+        if (Math.hypot(dx, dy) < 1e-6) continue;
+        const a = Math.atan2(dy, dx);
+        if (prev !== null) { sum += Math.abs(QE.angleDelta(a, prev)); n++; }
+        prev = a;
+      }
+      return n ? sum / n : 0;
+    }
+
+    assistOff();
+    await reset();
+    await H.playStroke(tremorPath(), { hz: 200, framesPerSec: 60 });
+    const rawRough = pathRoughness(T.strokes[T.strokes.length - 1]);
+
+    setA({ intelligent_assist_enabled: true, assist_strength: 0.5,
+           smoothing_strength: 0.85, assist_mode: 'free', width_mode: 'pressure' });
+    await reset();
+    await H.playStroke(tremorPath(), { hz: 200, framesPerSec: 60 });
+    const assistedStroke = T.strokes[T.strokes.length - 1];
+    const smoothRough = pathRoughness(assistedStroke);
+    ok('ACCEPT-1 stabilisation reduces path roughness from hand tremor',
+       smoothRough < rawRough * 0.8,
+       `raw=${rawRough.toFixed(4)} assisted=${smoothRough.toFixed(4)}`);
+    // شکلِ کلیِ حرکت باید حفظ شود
+    const first = assistedStroke[0], last = assistedStroke[assistedStroke.length - 1];
+    ok('ACCEPT-1 the overall movement is preserved after stabilisation',
+       last.x - first.x > 330 && Math.abs(last.y - first.y) < 30,
+       `dx=${(last.x - first.x).toFixed(1)} dy=${(last.y - first.y).toFixed(1)}`);
+    ok('ACCEPT-1 no sample is dropped by stabilisation',
+       assistedStroke.length > 60, `samples=${assistedStroke.length}`);
+
+    // ---- تستِ پذیرشِ ۴ (بخش ۵۹): فشار ⇒ ضخامت ----
+    setA({ intelligent_assist_enabled: true, assist_strength: 0.4,
+           smoothing_strength: 0.3, width_mode: 'pressure', assist_mode: 'free' });
+    await reset();
+    const ramp = H.pathLine(150, 300, 600, 300, 200, u => (u < 0.5 ? 0.2 : 0.8), 5);
+    await H.playStroke(ramp, { hz: 200, framesPerSec: 60 });
+    const lowW = verticalExtent(230), highW = verticalExtent(520);
+    ok('ACCEPT-4 higher pressure produces a visibly thicker line',
+       highW > lowW * 1.4, `low=${lowW.toFixed(2)}px high=${highW.toFixed(2)}px`);
+
+    // ---- تستِ پذیرشِ ۱۱ (بخش ۶۶): Hover هیچ استروکی نمی‌سازد ----
+    await reset();
+    const nBefore = T.strokes.length;
+    for (let i = 0; i < 20; i++) {
+      const ev = H.makeEvent('pointermove',
+        { x: 200 + i * 8, y: 250, pressure: 0, t: performance.now() },
+        H.newPointerId(), 'pen');
+      H.dispatch(ev);
+    }
+    await H.waitFrame();
+    ok('ACCEPT-11 hovering never creates a stroke',
+       T.strokes.length === nBefore && inkedPixels(150, 200, 400, 120) === 0,
+       `strokes=${T.strokes.length} before=${nBefore}`);
+
+    // ---- تستِ پذیرشِ ۹ و ۱۰ (بخش ۶۴ و ۶۵): سریع و آهسته ----
+    setA({ intelligent_assist_enabled: true, real_ballpoint_enabled: true,
+           assist_strength: 0.5, smoothing_strength: 0.6, width_mode: 'pressure' });
+    await reset();
+    const quick = H.pathLine(150, 300, 620, 300, 40, () => 0.7, 2);
+    await H.playStroke(quick, { hz: 500, framesPerSec: 60 });
+    const fastStroke = T.strokes[T.strokes.length - 1] || [];
+    let maxStep = 0;
+    for (let i = 1; i < fastStroke.length; i++) {
+      maxStep = Math.max(maxStep, Math.hypot(
+        fastStroke[i].x - fastStroke[i - 1].x, fastStroke[i].y - fastStroke[i - 1].y));
+    }
+    ok('ACCEPT-9 a fast stroke is not broken into pieces',
+       fastStroke.length > 40 && maxStep <= window.__qalamCfg.maxSpacing + 0.75,
+       `samples=${fastStroke.length} maxStep=${maxStep.toFixed(2)} cap=${window.__qalamCfg.maxSpacing}`);
+    ok('ACCEPT-9 a fast stroke covers the whole path',
+       fastStroke[fastStroke.length - 1].x > 600,
+       `endX=${fastStroke[fastStroke.length - 1].x.toFixed(1)}`);
+
+    await reset();
+    const slow = H.pathLine(150, 300, 620, 300, 200, () => 0.7, 22);
+    await H.playStroke(slow, { hz: 45, framesPerSec: 60 });
+    const slowStroke = T.strokes[T.strokes.length - 1] || [];
+    /* سر و دمِ استروک *عمداً* باریک‌اند (تیپرِ آغاز + دمِ قلمِ نیِ موجود)،
+       پس سنجشِ «ضخامتِ غیرطبیعی» باید روی بدنهٔ پایا انجام شود. اندازه‌گیریِ
+       کلِ استروک نسبتِ ۵٫۵ می‌داد که همه‌اش از همان دو تیپرِ خواسته‌شده بود. */
+    const a0 = Math.round(slowStroke.length * 0.25);
+    const a1 = Math.round(slowStroke.length * 0.75);
+    let wMin = Infinity, wMax = -Infinity;
+    for (let i = a0; i < a1; i++) {
+      const r = slowStroke[i];
+      if (!r || r.cw == null) continue;
+      wMin = Math.min(wMin, r.cw); wMax = Math.max(wMax, r.cw);
+    }
+    ok('ACCEPT-10 a slow stroke keeps its body width plausible and bounded',
+       isFinite(wMin) && wMax / wMin < 2.4,
+       `min=${wMin.toFixed(2)} max=${wMax.toFixed(2)} (middle 50%)`);
+    // و تیپرها باید *وجود* داشته باشند، نه اینکه خط ناگهان قطع شود
+    ok('ACCEPT-10 the stroke still tapers at its ends rather than cutting off',
+       slowStroke[0].cw < wMin && slowStroke[slowStroke.length - 1].cw < wMin,
+       `start=${slowStroke[0].cw.toFixed(2)} body≥${wMin.toFixed(2)} ` +
+       `end=${slowStroke[slowStroke.length - 1].cw.toFixed(2)}`);
+    ok('ACCEPT-10 a slow stroke is not over-smoothed into a straight jump',
+       slowStroke.length > 60, `samples=${slowStroke.length}`);
+    assistOff();
+    await reset();
+  }
+
+  /* ===================================================================
+     ۱۴) خودکارِ واقعی در برابر Brush دیجیتال — تستِ A/B (بخش ۱۴۵)
+     =================================================================== */
+  {
+    const TL = window.__qalamTools;
+    async function drawFlat(tool, ballpoint) {
+      setA({ intelligent_assist_enabled: false, real_ballpoint_enabled: ballpoint,
+             base_width_mm: 0.7, natural_variation: 0.5, ink_build_up: 0.4,
+             paper_roughness: 0.5, paper_absorption: 0.35 });
+      TL.setTool(tool);
+      await reset();
+      // فشارِ کاملاً یکنواخت ⇒ هر تغییری در تُن از خودِ مدل می‌آید
+      const p = H.pathLine(150, 300, 620, 300, 240, () => 0.62, 5);
+      await H.playStroke(p, { hz: 200, framesPerSec: 60 });
+      const cols = [];
+      for (let x = 220; x <= 560; x += 20) {
+        const l = columnLuma(x);
+        if (l !== null) cols.push(l);
+      }
+      const recs = T.strokes[T.strokes.length - 1] || [];
+      const tones = recs.map(r => r.inkAmt).filter(v => v != null);
+      return {
+        lumaRange: cols.length ? Math.max.apply(null, cols) - Math.min.apply(null, cols) : 0,
+        toneRange: tones.length ? Math.max.apply(null, tones) - Math.min.apply(null, tones) : 0,
+        n: recs.length,
+      };
+    }
+
+    const brush = await drawFlat('brush', false);
+    const ball = await drawFlat('ballpoint', true);
+    ok('A/B the ballpoint engine varies ink deposition under constant pressure',
+       ball.toneRange > brush.toneRange * 1.5 && ball.toneRange > 0.05,
+       `brush=${brush.toneRange.toFixed(4)} ballpoint=${ball.toneRange.toFixed(4)}`);
+    ok('A/B the ballpoint output shows visible tone variation on canvas',
+       ball.lumaRange > brush.lumaRange,
+       `brush=${brush.lumaRange.toFixed(2)} ballpoint=${ball.lumaRange.toFixed(2)}`);
+
+    // نوکِ ساچمه‌ای: پهنا تقریباً ثابت و مستقل از فشار
+    async function widthAt(pressure) {
+      await reset();
+      const p = H.pathLine(150, 300, 620, 300, 200, () => pressure, 5);
+      await H.playStroke(p, { hz: 200, framesPerSec: 60 });
+      return verticalExtent(400);
+    }
+    TL.setTool('ballpoint');
+    setA({ real_ballpoint_enabled: true, base_width_mm: 0.7 });
+    const bLow = await widthAt(0.15), bHigh = await widthAt(0.95);
+    ok('BALLPOINT the tip width is only modestly pressure dependent',
+       bLow > 0 && bHigh / bLow < 2.0 && bHigh >= bLow,
+       `low=${bLow.toFixed(2)} high=${bHigh.toFixed(2)} ratio=${(bHigh / bLow).toFixed(2)}`);
+    /* پهنای پایه بر حسبِ میلی‌متر واقعاً اثر دارد.
+       نکتهٔ سنجش: verticalExtent «گسترهٔ پیکسل‌های جوهردار» را می‌شمارد و
+       حاشیهٔ آنتی‌الیاس و لبهٔ مویینِ مرکب را هم در بر می‌گیرد، پس همیشه از
+       پهنای *سطحِ تماس* بزرگ‌تر است. برای سنجشِ میلی‌متر باید به خودِ
+       cfg.nibWidth و پهنای رکورد نگاه کرد، نه به گستره‌ی رستر. */
+    setA({ base_width_mm: 0.3 });
+    const thin = await widthAt(0.7);
+    const thinNib = window.__qalamCfg.nibWidth;
+    setA({ base_width_mm: 1.2 });
+    const thick = await widthAt(0.7);
+    const thickNib = window.__qalamCfg.nibWidth;
+    ok('BALLPOINT the base width in millimetres controls the actual width',
+       thick > thin * 1.4, `0.3mm=${thin.toFixed(2)}px 1.2mm=${thick.toFixed(2)}px`);
+    near('BALLPOINT the tip width in pixels equals the requested millimetres',
+         thickNib, 1.2 * window.__qalamCfg.pxPerMm, 0.01,
+         `expected=${(1.2 * window.__qalamCfg.pxPerMm).toFixed(3)}px`);
+    near('BALLPOINT a finer tip scales exactly with its millimetre setting',
+         thickNib / thinNib, 1.2 / 0.3, 0.01,
+         `thin=${thinNib.toFixed(3)}px thick=${thickNib.toFixed(3)}px`);
+    ok('BALLPOINT the rasterised extent exceeds the tip width by only a fringe',
+       thick > thickNib && thick < thickNib + 5,
+       `nib=${thickNib.toFixed(2)}px raster=${thick.toFixed(2)}px`);
+
+    TL.setTool('reed');
+    assistOff();
+    await reset();
+  }
+
+  /* ===================================================================
+     ۱۵) قانونِ Monitor 2 و پروتکلِ آینه  (بخش ۳۲، ۸۶؛ تست پذیرش ۶ و ۷)
+     =================================================================== */
+  {
+    const env = window.__qalamMirror.env();
+    const json = JSON.stringify(env);
+    // هیچ فیلدی از مرجع نباید در پروتکل باشد
+    const banned = ['paperType', 'customImage', 'bgVeil', 'reference', 'refStrokes',
+                    'analysis', 'centerline', 'image', 'mask', 'skeleton', 'edt'];
+    const leaked = banned.filter(k => Object.prototype.hasOwnProperty.call(env, k) ||
+                                      (env.cfg && Object.prototype.hasOwnProperty.call(env.cfg, k)));
+    ok('MONITOR2 the mirror protocol carries no reference-image field',
+       leaked.length === 0, `leaked=${leaked.join(',') || 'none'}`);
+    ok('MONITOR2 the mirror protocol carries no assist-analysis payload',
+       !/reference|skeleton|centerline|analysis/i.test(json));
+    ok('MONITOR2 the mirror protocol still carries what final ink needs',
+       env.W > 0 && env.H > 0 && typeof env.color === 'string' &&
+       env.cfg && typeof env.cfg.nibWidth === 'number',
+       `keys=${Object.keys(env).join(',')}`);
+
+    // در پنجرهٔ اصلی، لایهٔ دستیار باید بداند که آینه نیست
+    ok('MONITOR2 the assist layer knows it is not the mirror window',
+       AUI.isMirror === false);
+    /* گاردِ ساختاری: تحلیلِ مرجع در حالتِ آینه رد می‌شود. این‌جا نمی‌توانیم
+       واقعاً پنجرهٔ آینه بسازیم، ولی می‌توانیم تأیید کنیم که تصمیم بر
+       اساسِ همان پرچمی است که mirror.html می‌گذارد. */
+    ok('MONITOR2 the reference guard is keyed on the mirror flag',
+       AUI.isMirror === !!window.__QALAM_MIRROR);
+  }
+
+  /* ===================================================================
+     ۱۶) Undo و پاک‌کن سازگار می‌مانند  (بخش ۴۹)
+     =================================================================== */
+  {
+    setA({ intelligent_assist_enabled: true, real_ballpoint_enabled: true,
+           assist_strength: 0.6, smoothing_strength: 0.5 });
+    await reset();
+    const before = T.strokes.length;
+    await H.playStroke(H.pathLine(200, 260, 500, 260, 120, () => 0.7, 5),
+                       { hz: 200, framesPerSec: 60 });
+    await H.playStroke(H.pathLine(200, 340, 500, 340, 120, () => 0.7, 5),
+                       { hz: 200, framesPerSec: 60 });
+    ok('UNDO each assisted stroke is a single history unit',
+       T.strokes.length === before + 2 && T.history.length >= 2,
+       `strokes=${T.strokes.length} history=${T.history.length}`);
+    document.getElementById('undo').click();
+    await H.waitFrame(); await H.waitFrame();
+    ok('UNDO one undo removes exactly one assisted stroke',
+       T.strokes.length === before + 1, `strokes=${T.strokes.length}`);
+    assistOff();
+    await reset();
+  }
+
+  /* ===================================================================
+     ۱۷) تنظیمات و پیش‌تنظیم‌ها  (بخش ۷۰، ۱۱۱، ۱۴۹، ۱۵۰)
+     =================================================================== */
+  {
+    // همهٔ کلیدهای خواسته‌شده وجود دارند
+    const required = ['intelligent_assist_enabled', 'assist_strength',
+      'smoothing_strength', 'width_mode', 'pressure_enabled', 'pressure_curve',
+      'pressure_min', 'pressure_max', 'show_pressure', 'show_target_pressure',
+      'show_target_width', 'style', 'real_ballpoint_enabled', 'pen_preset',
+      'ink_flow', 'ink_density', 'ink_build_up', 'ink_dryness', 'paper_type',
+      'paper_roughness', 'paper_absorption', 'natural_variation',
+      'start_taper', 'end_taper', 'velocity_response', 'pressure_sensitivity'];
+    const missing = required.filter(k => !(k in A.DEFAULTS));
+    ok('SETTINGS every documented setting key exists',
+       missing.length === 0, `missing=${missing.join(',') || 'none'}`);
+
+    // پیش‌تنظیم‌ها فقط Configuration‌اند و از هم متمایزند
+    const ids = Object.keys(A.PEN_PRESETS);
+    ok('SETTINGS at least six ballpoint presets are defined',
+       ids.length >= 6, `presets=${ids.join(',')}`);
+    const sA = A.createSettings(); A.applyPenPreset(sA, 'fine');
+    const sB = A.createSettings(); A.applyPenPreset(sB, 'heavy');
+    ok('SETTINGS the fine and heavy presets differ in width and flow',
+       sA.base_width_mm < sB.base_width_mm && sA.ink_flow < sB.ink_flow,
+       `fine=${sA.base_width_mm}mm heavy=${sB.base_width_mm}mm`);
+    ok('SETTINGS applying an unknown preset is rejected',
+       A.applyPenPreset(A.createSettings(), 'nope') === false);
+
+    // صدور/ورودِ پیش‌تنظیم رفت‌وبرگشتی است
+    const snapshot = AUI.exportPreset();
+    const originalVar = AUI.settings.natural_variation;
+    AUI.settings.natural_variation = 0.99;
+    ok('SETTINGS a preset can be re-imported and restores values',
+       AUI.importPreset(snapshot) &&
+       AUI.settings.natural_variation === originalVar,
+       `restored=${AUI.settings.natural_variation}`);
+    ok('SETTINGS malformed preset text is rejected without throwing',
+       AUI.importPreset('{not json') === false);
+  }
+
+  /* ===================================================================
+     ۱۸) کارایی  (بخش ۴۲، ۱۴۶)
+     =================================================================== */
+  {
+    setA({ intelligent_assist_enabled: true, real_ballpoint_enabled: true,
+           assist_strength: 0.75, smoothing_strength: 0.6,
+           width_mode: 'reference', assist_mode: 'reference' });
+    await reset();
+    H.resetBusy();
+    const long = H.pathZigzag(120, 300, 620, 22, 600, u => 0.35 + 0.55 * u, 3);
+    const res = await H.playStroke(long, { hz: 330, framesPerSec: 60 });
+    const fs = H.stats(res.frameTimes);
+    /* بودجهٔ یک فریمِ ۶۰Hz حدود ۱۶٫۷ms است. این‌جا فقط *کارِ ورودی* را
+       می‌سنجیم (رسم در rAF جداست)، پس سقفِ محافظه‌کارانه می‌گذاریم. */
+    ok('PERF the assisted input path stays well inside a 60 FPS budget',
+       fs.p95 < 16.7, `p95=${fs.p95.toFixed(2)}ms mean=${fs.mean.toFixed(2)}ms`);
+    ok('PERF no input sample is lost to buffer overflow',
+       T.bufferSize === 0 && window.__qalamStats.overflow === 0,
+       `buffer=${T.bufferSize} overflow=${window.__qalamStats.overflow}`);
+    const m = AUI.state.metrics;
+    ok('PERF per-stroke matching cost is recorded and small',
+       m.matchMs < 40, `matchMs=${m.matchMs.toFixed(2)}`);
+    ok('PERF per-stroke reconstruction cost is recorded and small',
+       m.shapeMs < 40, `shapeMs=${m.shapeMs.toFixed(2)}`);
+    assistOff();
+    await reset();
+  }
+
+  /* ===================================================================
+     ۱۹) شدتِ کمک — معناشناسیِ بخش ۱۶
+     =================================================================== */
+  {
+    // ۰٪ ⇒ کاملاً خاموش، حتی اگر کلیدِ اصلی روشن باشد
+    setA({ intelligent_assist_enabled: true, assist_strength: 0,
+           smoothing_strength: 1, assist_mode: 'free' });
+    ok('STRENGTH zero assist strength disables the whole layer',
+       AUI.assistEnabled === false && AUI.stabAmount() === 0);
+    // ۲۵٪ ⇒ فقط پایدارسازی، بدونِ اصلاحِ مسیر
+    setA({ assist_strength: 0.25, smoothing_strength: 0.8 });
+    ok('STRENGTH at 25% only stabilisation is active',
+       AUI.stabAmount() > 0.7 && AUI.pathAmount() === 0,
+       `stab=${AUI.stabAmount().toFixed(2)} path=${AUI.pathAmount()}`);
+    // اصلاحِ مسیر با شدت بالا می‌رود
+    setA({ assist_strength: 1.0 });
+    const full = AUI.pathAmount();
+    setA({ assist_strength: 0.5 });
+    const half = AUI.pathAmount();
+    ok('STRENGTH path correction grows with assist strength',
+       full >= half, `full=${full.toFixed(3)} half=${half.toFixed(3)}`);
+    // بدونِ مرجع، اصلاحِ مسیر و پهنا هر دو صفرند
+    setA({ assist_mode: 'free', assist_strength: 1, width_mode: 'reference' });
+    ok('STRENGTH without a reference no path or width correction happens',
+       AUI.pathAmount() === 0 && AUI.widthAmount() === 0);
+    /* بخش ۳۶: Final Correction = AssistStrength × Confidence. با نبودِ
+       تحلیل، Confidence صفر است و کمک هم صفر می‌شود. */
+    ok('STRENGTH correction is gated by reference confidence',
+       AUI.confidence() === 0 && AUI.widthAmount() === 0);
+    assistOff();
+  }
+
+  const summary = {
+    total: results.length,
+    failures,
+    results,
+    ua: navigator.userAgent,
+    secureContext: !!window.isSecureContext,
+  };
+  out.innerHTML = results.map(r =>
+    `<span class="${r.ok ? 'pass' : 'fail'}">${r.ok ? 'PASS' : 'FAIL'}</span> ${r.name}` +
+    (r.detail ? `   ${r.detail}` : '')).join('\n') +
+    `\n\n${results.length - failures}/${results.length} passed`;
+  try {
+    fetch('/__result', { method: 'POST', body: JSON.stringify(summary) });
+  } catch (_) {}
+  return summary;
+})();
+</script>
+</body>
+</html>

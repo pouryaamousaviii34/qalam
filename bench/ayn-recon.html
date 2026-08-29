@@ -1,0 +1,260 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>ayn reconstruction</title></head>
+<body><div id="app"></div><pre id="o">…</pre>
+<script src="../labs/imglib.js"></script>
+<script src="harness.js"></script>
+<script src="../labs/lab.js"></script>
+<script>
+/* =====================================================================
+   PHASE A — بازسازیِ مسیرِ «ع» و آزمونِ A / B
+   ===================================================================== */
+window.__rec = (async function () {
+  const M = window.QalamImg;
+
+  /* ---------- ۱) نقابِ مرجعِ پاک‌شده ---------- */
+  const img = new Image();
+  await new Promise((res, rej) => { img.onload = res; img.onerror = rej;
+                                    img.src = '../labs/ref/ayn-ref.png'; });
+  const W = img.width, H = img.height;
+  const rc = document.createElement('canvas'); rc.width = W; rc.height = H;
+  const rx = rc.getContext('2d'); rx.drawImage(img, 0, 0);
+  const raw = M.maskFromImage(rx.getImageData(0, 0, W, H).data, W, H,
+                              { inset: 14, lumMax: 110 });
+  let ref = M.healRedHoles(raw.mask, raw.red, W, H, 4);
+
+  /* حذفِ مؤلفه‌های نازکِ باقی‌مانده از کادرِ اسکرین‌شات:
+     هر مؤلفه‌ی متصل که بیشینه‌ی شعاعش < 2px باشد جزء حرف نیست. */
+  {
+    const d0 = M.distanceTransform(ref, W, H);
+    const lab = new Int32Array(W * H).fill(-1);
+    const comps = [];
+    for (let i = 0; i < W * H; i++) {
+      if (!ref[i] || lab[i] >= 0) continue;
+      const id = comps.length, st = [i]; lab[i] = id;
+      let n = 0, rmax = 0, list = [];
+      while (st.length) {
+        const p = st.pop(), px = p % W, py = (p / W) | 0;
+        n++; list.push(p);
+        if (d0[p] > rmax) rmax = d0[p];
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const qx = px + dx, qy = py + dy;
+          if (qx < 0 || qy < 0 || qx >= W || qy >= H) continue;
+          const q = qy * W + qx;
+          if (ref[q] && lab[q] < 0) { lab[q] = id; st.push(q); }
+        }
+      }
+      comps.push({ id, n, rmax, list });
+    }
+    for (const cp of comps) if (cp.rmax < 2) for (const p of cp.list) ref[p] = 0;
+  }
+  let refN = 0; for (let i = 0; i < W * H; i++) if (ref[i]) refN++;
+  const bb = M.bbox(ref, W, H);
+  const dist = M.distanceTransform(ref, W, H);
+
+  /* ---------- ۲) استخراجِ خطِ مرکزی ----------
+     اسکلتِ خام برای حرفِ فونتی پرشاخه است، پس به‌جای جراحیِ گراف از
+     ساختارِ هندسیِ خودِ «ع» استفاده می‌کنیم: سرِ حرف و کاسه هر دو کمانی‌اند
+     و دم تابعِ x است. برای هر کمان، در هر زاویه شعاعِ میانه‌ی مرکب =
+     خطِ مرکزی، و نیمِ بازه = نیم‌عرضِ مشاهده‌شده.
+     مهم: این «تخمینِ مرکزِ هندسی» است، نه مسیرِ قطعیِ قلم.        */
+  function polarRidge(cx, cy, a0, a1, steps, rMin, rMax, guardFn) {
+    const out = [];
+    for (let k = 0; k < steps; k++) {
+      const a = a0 + (a1 - a0) * (k / (steps - 1));
+      const ca = Math.cos(a), sa = Math.sin(a);
+      let best = null, run = null;
+      for (let r = rMin; r <= rMax; r += 0.5) {
+        const px = Math.round(cx + ca * r), py = Math.round(cy + sa * r);
+        const inside = px >= 0 && py >= 0 && px < W && py < H && ref[py * W + px] &&
+                       (!guardFn || guardFn(px, py));
+        if (inside) { if (!run) run = { r0: r, r1: r }; else run.r1 = r; }
+        else if (run) { if (!best || (run.r1 - run.r0) > (best.r1 - best.r0)) best = run; run = null; }
+      }
+      if (run && (!best || (run.r1 - run.r0) > (best.r1 - best.r0))) best = run;
+      if (!best) continue;
+      const rm = (best.r0 + best.r1) / 2, hw = (best.r1 - best.r0) / 2;
+      out.push({ x: cx + ca * rm, y: cy + sa * rm, hw: hw, ang: a });
+    }
+    return out;
+  }
+
+  // ناحیه‌ها (از سنجشِ مرجع در گامِ قبل)
+  const inHead = (px, py) => py <= 95;
+  const inBowl = (px, py) => py >= 92;
+
+  /* --- سرِ حرف: کمانِ هلالی --- */
+  const HEAD = { cx: 170, cy: 55 };
+  const headArc = polarRidge(HEAD.cx, HEAD.cy, -205 * Math.PI / 180,
+                             -25 * Math.PI / 180, 90, 6, 60, inHead);
+
+  /* --- کاسه: کمانِ بزرگ. مرکز با برازشِ کمترین‌مربعاتِ دایره روی
+         نقاطِ اسکلتیِ کاسه تخمین زده می‌شود. --- */
+  const sk = M.skeletonize(ref, W, H);
+  const bowlPts = [];
+  for (let y = 100; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x;
+    if (sk[i] && dist[i] > 3.5) bowlPts.push({ x, y });
+  }
+  const fit = (function (P) {                      // برازشِ دایره (Kasa)
+    let Sx = 0, Sy = 0, Sxx = 0, Syy = 0, Sxy = 0, Sxz = 0, Syz = 0, Sz = 0, n = P.length;
+    for (const p of P) {
+      const z = p.x * p.x + p.y * p.y;
+      Sx += p.x; Sy += p.y; Sxx += p.x * p.x; Syy += p.y * p.y;
+      Sxy += p.x * p.y; Sxz += p.x * z; Syz += p.y * z; Sz += z;
+    }
+    const A = [[2*(Sxx - Sx*Sx/n), 2*(Sxy - Sx*Sy/n)],
+               [2*(Sxy - Sx*Sy/n), 2*(Syy - Sy*Sy/n)]];
+    const B = [Sxz - Sx*Sz/n, Syz - Sy*Sz/n];
+    const det = A[0][0]*A[1][1] - A[0][1]*A[1][0];
+    if (Math.abs(det) < 1e-9) return { cx: 176, cy: 150, r: 60 };
+    const cx = (B[0]*A[1][1] - B[1]*A[0][1]) / det;
+    const cy = (A[0][0]*B[1] - A[1][0]*B[0]) / det;
+    let rs = 0; for (const p of P) rs += Math.hypot(p.x-cx, p.y-cy);
+    return { cx: +cx.toFixed(2), cy: +cy.toFixed(2), r: +(rs/n).toFixed(2) };
+  })(bowlPts);
+
+  const bowlArc = polarRidge(fit.cx, fit.cy, -125 * Math.PI / 180,
+                             75 * Math.PI / 180, 150,
+                             Math.max(6, fit.r - 55), fit.r + 60, inBowl);
+
+  /* --- دم: تابعِ x در ناحیه‌ی راست --- */
+  const tail = [];
+  for (let px = 205; px <= bb.x1; px += 2) {
+    let t = -1, b2 = -1;
+    for (let py = 100; py < H; py++) if (ref[py * W + px]) { if (t < 0) t = py; b2 = py; }
+    if (t < 0) continue;
+    tail.push({ x: px, y: (t + b2) / 2, hw: (b2 - t) / 2 });
+  }
+
+  /* ---------- ۳) چهار استروک ----------
+     ترتیب از فلش‌های ۱..۴ (مرکزِ جرمِ لکه‌های قرمز، اندازه‌گیری‌شده):
+       ۱ (140,25) بالای سر ، ۲ (136,69) پایین-چپِ سر ،
+       ۳ (196,76) شاخکِ راستِ سر ، ۴ (183,163) کاسه
+     جهت‌ها از شکلِ فلش‌ها *خوانده* شده‌اند (نه محاسبه‌شده) و به همین
+     عنوان ثبت می‌شوند.                                              */
+  function pickRange(arr, aFrom, aTo) {
+    const lo = Math.min(aFrom, aTo), hi = Math.max(aFrom, aTo);
+    const s = arr.filter(p => p.ang >= lo && p.ang <= hi);
+    return (aFrom > aTo) ? s.slice().reverse() : s;
+  }
+  const DEG = Math.PI / 180;
+  const s1 = pickRange(headArc, -205 * DEG, -95 * DEG);   // چپ → بالا → راست
+  const s2 = pickRange(headArc, -95 * DEG, -25 * DEG);    // ادامه‌ی هلال به راست/پایین
+  const s3raw = [];                                       // شاخکِ راست، راست→چپ
+  for (let px = 222; px >= 185; px -= 2) {
+    let t = -1, b2 = -1;
+    for (let py = 55; py <= 95; py++) if (ref[py * W + px]) { if (t < 0) t = py; b2 = py; }
+    if (t < 0) continue;
+    s3raw.push({ x: px, y: (t + b2) / 2, hw: (b2 - t) / 2 });
+  }
+  const s4 = bowlArc.concat(tail.filter(p => p.x > 200));
+
+  function finish(pts, simplifyEps) {
+    if (pts.length < 3) return null;
+    const rs = M.resample(pts, 2.0);
+    // hw را دوباره از تبدیلِ فاصله می‌گیریم (پس از بازنمونه)
+    for (const p of rs) {
+      const px = Math.max(0, Math.min(W - 1, Math.round(p.x)));
+      const py = Math.max(0, Math.min(H - 1, Math.round(p.y)));
+      p.hw = dist[py * W + px];
+    }
+    const sm = M.smoothPolyline(rs, 3, true);
+    for (let i = 0; i < sm.length; i++) sm[i].hw = rs[Math.min(i, rs.length - 1)].hw;
+    const cp = M.simplify(sm, simplifyEps == null ? 1.1 : simplifyEps);
+    return { control: cp, dense: M.catmullRom(cp, 10), sampled: sm };
+  }
+
+  const S = [finish(s1), finish(s2), finish(s3raw), finish(s4, 1.4)];
+  const names = ['۱ بالای سر (چپ→راست)', '۲ هلالِ سر (→ راست/پایین)',
+                 '۳ شاخکِ راست (راست→چپ)', '۴ کاسه و کشیده (→ راست)'];
+  const dirs = ['right-down', 'right-down', 'left', 'down-left-then-right'];
+
+  /* ---------- ۴) تخمینِ زاویه‌ی نوک ----------
+     برای نوکِ تختِ ثابت:  observedWidth = |Wn·sinθ| + |Tn·cosθ| ،
+     θ = nibAngle − strokeDirection. با جست‌وجوی یک‌بعدی روی nibAngle و
+     مقیاسِ Wn، مجموعِ مربعاتِ خطا کمینه می‌شود. باقی‌مانده‌ی بزرگ ⇒
+     زاویه ثابت نیست یا مرجع ردِ قلمِ لبه‌پهن نیست ⇒ UNKNOWN.        */
+  const obs = [];
+  for (const st of S) {
+    if (!st) continue;
+    const p = st.sampled;
+    for (let i = 1; i < p.length - 1; i++) {
+      const dir = Math.atan2(p[i + 1].y - p[i - 1].y, p[i + 1].x - p[i - 1].x);
+      obs.push({ dir, w: p[i].hw * 2 });
+    }
+  }
+  let bestAng = null, bestErr = 1e18, bestW = 0, bestT = 0;
+  for (let ang = 0; ang < 180; ang += 1) {
+    for (let Wn = 20; Wn <= 70; Wn += 1) {
+      for (let Tn = 4; Tn <= 26; Tn += 1) {
+        let e = 0;
+        for (const o of obs) {
+          const th = ang * DEG - o.dir;
+          const pred = Math.abs(Wn * Math.sin(th)) + Math.abs(Tn * Math.cos(th));
+          e += (pred - o.w) * (pred - o.w);
+        }
+        if (e < bestErr) { bestErr = e; bestAng = ang; bestW = Wn; bestT = Tn; }
+      }
+    }
+  }
+  const rmse = Math.sqrt(bestErr / Math.max(1, obs.length));
+  let meanW = 0; for (const o of obs) meanW += o.w; meanW /= Math.max(1, obs.length);
+
+  const refJson = {
+    letter: 'ayn', form: 'isolated',
+    source: 'labs/ref/ayn-ref.png',
+    imageSize: [W, H], bbox: bb, refArea: refN,
+    note: 'centerline = geometric center estimate (skeleton + distance transform), NOT a proven pen path',
+    arrowAnchors: [[140.4, 25.2], [136.2, 69.2], [195.9, 75.7], [182.9, 162.5]],
+    bowlCircleFit: fit,
+    nibEstimate: { angleDeg: bestAng, widthPx: bestW, thicknessPx: bestT,
+                   rmsePx: +rmse.toFixed(2), meanObservedWidthPx: +meanW.toFixed(2),
+                   verdict: rmse < 4 ? 'constant-angle plausible' : 'UNKNOWN (residual too high)' },
+    strokes: S.map((st, i) => st ? {
+      id: i + 1, name: names[i], direction: dirs[i],
+      directionSource: 'read from red arrows in reference image',
+      start: [+st.dense[0].x.toFixed(1), +st.dense[0].y.toFixed(1)],
+      end: [+st.dense[st.dense.length-1].x.toFixed(1), +st.dense[st.dense.length-1].y.toFixed(1)],
+      length: +M.polyLength(st.dense).toFixed(1),
+      controlPoints: st.control.map(p => [+p.x.toFixed(1), +p.y.toFixed(1)]),
+      halfWidthProfile: st.sampled.map(p => +p.hw.toFixed(2)),
+    } : null).filter(Boolean),
+  };
+
+  document.getElementById('o').textContent = 'ok';
+  return {
+    ok: true, refArea: refN, bbox: bb, bowlFit: fit,
+    nib: refJson.nibEstimate,
+    strokeInfo: refJson.strokes.map(s => ({ id: s.id, len: s.length, cps: s.controlPoints.length,
+      start: s.start, end: s.end })),
+    json: refJson,
+    maskPng: M.maskToPng(ref, W, H, '#1a1208'),
+    // نمایشِ خطوطِ مرکزیِ استخراج‌شده (فقط برای بازرسی، نه خروجیِ نهایی)
+    pathPng: (function () {
+      const c2 = document.createElement('canvas'); c2.width = W; c2.height = H;
+      const g = c2.getContext('2d');
+      g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+      g.globalAlpha = 0.22; g.fillStyle = '#000';
+      for (let i = 0; i < W * H; i++) if (ref[i]) g.fillRect(i % W, (i / W) | 0, 1, 1);
+      g.globalAlpha = 1;
+      const cols = ['#c0392b', '#2e7d4f', '#2b6cb0', '#8e44ad'];
+      S.forEach((st, i) => {
+        if (!st) return;
+        g.strokeStyle = cols[i]; g.lineWidth = 1.6; g.beginPath();
+        st.dense.forEach((p, k) => k ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y));
+        g.stroke();
+        g.fillStyle = cols[i];
+        st.control.forEach(p => g.fillRect(p.x - 1.5, p.y - 1.5, 3, 3));
+      });
+      return c2.toDataURL('image/png');
+    })(),
+  };
+})();
+window.__rec.then(r => {
+  const j = JSON.stringify(r);
+  try { navigator.sendBeacon('/__result', j); } catch (e) {}
+  try { const q = new XMLHttpRequest(); q.open('POST', '/__result', true); q.send(j); } catch (e) {}
+}).catch(e => {
+  const j = JSON.stringify({ ok: false, error: String(e && e.stack || e) });
+  try { const q = new XMLHttpRequest(); q.open('POST', '/__result', true); q.send(j); } catch (_) {}
+});
+</script></body></html>

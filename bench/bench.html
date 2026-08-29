@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>Qalam Benchmark</title>
+<style>body{margin:0;font:13px monospace;background:#111;color:#ddd}
+#out{white-space:pre;padding:10px}#app{position:absolute;left:-4000px;top:0}</style>
+</head>
+<body>
+<pre id="out">RUNNING</pre>
+<script src="harness.js"></script>
+<script>
+/* =====================================================================
+   bench.html — بنچمارک موتور قلم نی
+   ---------------------------------------------------------------------
+   استفاده:
+     bench.html?engine=baseline-app.js      → موتور قبل از اصلاح
+     bench.html?engine=../app.js            → موتور فعلی
+   خروجی: JSON در #out (قابل خواندن با chrome --headless --dump-dom)
+   ===================================================================== */
+window.__benchResult = (async function () {
+  const out = document.getElementById('out');
+  const H = window.QalamHarness;
+  const qs = new URLSearchParams(location.search);
+  const engine = qs.get('engine') || '../app.js';
+
+  H.instrument();
+  H.instrumentRaf();
+  const paper = H.buildDOM(900, 600);
+  // ResizeObserver در app.js اندازه را می‌گیرد؛ یک تیک صبر کن
+  await new Promise(r => setTimeout(r, 60));
+
+  try {
+    // موتورِ هندسه — برای baseline بی‌اثر است، برای نسخه‌ی جدید لازم
+    try { await H.loadEngine('../stylus.js');
+  await H.loadEngine('../qalam-engine.js'); } catch (_) {}
+    await H.loadEngine(engine);
+  } catch (e) {
+    out.textContent = JSON.stringify({ error: String(e) });
+    return { error: String(e) };
+  }
+  await new Promise(r => setTimeout(r, 120));
+
+  const clearBtn = document.getElementById('clear');
+
+  // ---- سنجه‌ها برای یک سناریو ----
+  async function scenario(name, opt) {
+    clearBtn.click();
+    H.setControl('size', opt.size);
+    H.setControl('nibThick', opt.nibThick === undefined ? 1 : opt.nibThick);
+    H.setControl('smooth', opt.smooth === undefined ? 0.55 : opt.smooth);
+    await new Promise(requestAnimationFrame);
+
+    // محتوای پیش‌نوشته (برای سناریوی overlap)
+    if (opt.prefill) {
+      for (let k = 0; k < opt.prefill; k++) {
+        await H.playStroke(
+          H.pathLine(120, 200 + k * 3, 780, 200 + k * 3, opt.n, () => 0.75),
+          { hz: opt.hz, pointerType: 'pen', rawUpdate: opt.rawUpdate }
+        );
+      }
+    }
+
+    H.resetCounters();
+    H.resetBusy();
+    const QS = window.__qalamStats || null;      // فقط در موتور جدید هست
+    const s0 = QS ? QS.samples : 0;
+    const seg0 = QS ? QS.segments : 0;
+    const memBefore = performance.memory ? performance.memory.usedJSHeapSize : 0;
+    const t0 = performance.now();
+
+    const res = await H.playStroke(opt.samples(), {
+      hz: opt.hz, pointerType: opt.pointerType || 'pen', rawUpdate: opt.rawUpdate,
+    });
+
+    const wall = performance.now() - t0;
+    const memAfter = performance.memory ? performance.memory.usedJSHeapSize : 0;
+    const c = H.snapshotCounters();
+    const st = H.stats(res.frameTimes);
+    const nSamples = opt.n;
+    const busyMs = H.dispatchBusyMs + H.rafBusyMs;
+
+    return {
+      scenario: name,
+      brush: opt.size,
+      hz: opt.hz,
+      samples: nSamples,
+      frames: st.n,
+      // زمانِ اشغالِ ترد اصلی — سنجه‌ی اصلی
+      busyMs: +busyMs.toFixed(2),
+      busyPerFrameMs: st.n ? +(busyMs / st.n).toFixed(3) : 0,
+      dispatchBusyMs: +H.dispatchBusyMs.toFixed(2),
+      rafBusyMs: +H.rafBusyMs.toFixed(2),
+      // زمانِ سنکرونِ هندلر در هر فریم (تأخیرِ ورودی)
+      handlerMs: { mean: +st.mean.toFixed(3), p95: +st.p95.toFixed(3), max: +st.max.toFixed(3) },
+      pointerUpMs: +res.upTime.toFixed(3),
+      wallMs: +wall.toFixed(1),
+      drawCalls: c.drawCalls,
+      drawCallsPerFrame: st.n ? +(c.drawCalls / st.n).toFixed(1) : 0,
+      drawCallsPerSample: nSamples ? +(c.drawCalls / nSamples).toFixed(2) : 0,
+      // نمونه‌های تولیدشده‌ی موتور (بازنمونه‌شده) — فقط موتور جدید
+      engineSamples: QS ? QS.samples - s0 : null,
+      engineSegments: QS ? QS.segments - seg0 : null,
+      bufferOverflow: QS ? QS.overflow : null,
+      clampedSamples: QS ? QS.clamped : null,
+      pathOps: { fill: c.fill, stroke: c.stroke, arc: c.arc, beginPath: c.beginPath, save: c.save },
+      heapDeltaKB: +(((memAfter - memBefore) / 1024)).toFixed(0),
+    };
+  }
+
+  const SIZES = [1, 2, 4, 8, 16, 32];
+  const results = [];
+
+  for (const size of SIZES) {
+    // TEST: خط راستِ آهسته (گام ~0.9px بر نمونه، 200Hz → ~180px/s)
+    results.push(await scenario('slow-line', {
+      size, hz: 200, n: 400, rawUpdate: true,
+      samples: () => H.pathLine(120, 120, 480, 300, 400, u => 0.25 + 0.6 * Math.sin(u * Math.PI)),
+    }));
+    // TEST: خط راستِ سریع (گام ~6px بر نمونه)
+    results.push(await scenario('fast-line', {
+      size, hz: 200, n: 120, rawUpdate: true,
+      samples: () => H.pathLine(120, 400, 840, 520, 120, u => 0.4 + 0.4 * u),
+    }));
+    // TEST: هم‌پوشانی روی محتوای پیش‌نوشته — سناریوی باگ #۱
+    results.push(await scenario('overlap-x12', {
+      size, hz: 200, n: 400, prefill: 12, rawUpdate: true,
+      samples: () => H.pathLine(120, 200, 780, 218, 400, u => 0.3 + 0.5 * Math.sin(u * Math.PI * 3)),
+    }));
+    // TEST: دایره (تغییر پیوسته‌ی جهت)
+    results.push(await scenario('circle', {
+      size, hz: 200, n: 500, rawUpdate: true,
+      samples: () => H.pathCircle(450, 300, 160, 500, () => 0.7),
+    }));
+    // TEST: زیگزاگ (تغییر تندِ جهت)
+    results.push(await scenario('zigzag', {
+      size, hz: 200, n: 400, rawUpdate: true,
+      samples: () => H.pathZigzag(120, 300, 660, 60, 400, u => 0.2 + 0.7 * u),
+    }));
+  }
+
+  // TEST: استروکِ بسیار بلند با قلم ریز
+  results.push(await scenario('long-stroke', {
+    size: 2, hz: 200, n: 3000, rawUpdate: true,
+    samples: () => H.pathCircle(450, 300, 220, 3000, u => 0.3 + 0.6 * Math.abs(Math.sin(u * Math.PI * 4))),
+  }));
+  // TEST: ماوس (بدون فشار سخت‌افزاری)
+  results.push(await scenario('mouse-line', {
+    size: 4, hz: 120, n: 240, rawUpdate: false, pointerType: 'mouse',
+    samples: () => H.pathLine(120, 120, 800, 460, 240),
+  }));
+
+  /* ---- تشخیصِ پردازشِ دوباره‌ی ورودی ----------------------------------
+     همان مسیر، یک‌بار با pointerrawupdate + pointermove(coalesced) و
+     یک‌بار فقط با pointermove(coalesced). طبق Pointer Events L3 §4.2.5،
+     اجتماعِ coalesced eventهای rawupdateها با coalesced eventهای
+     pointermove بعدی یکی است؛ پس گوش‌دادن به هر دو = پردازشِ دوباره.
+     اگر نسبت ≈ 2 باشد، هر نمونه دو بار رسم شده است.
+     ------------------------------------------------------------------ */
+  /* ---- پیمایشِ هزینه‌ی pointerup بر حسبِ تعدادِ استروکِ هم‌پوشان -------
+     این همان سنجه‌ی مستقیمِ باگ #۱ است: «رفتن روی حرفی که قبلاً نوشته شده».
+     ------------------------------------------------------------------ */
+  const upScan = [];
+  for (const prefill of [0, 5, 10, 20, 40]) {
+    const r = await scenario('up-cost-prefill-' + prefill, {
+      size: 3, hz: 200, n: 250, prefill, rawUpdate: true,
+      samples: () => H.pathLine(140, 205, 780, 214, 250, u => 0.35 + 0.5 * Math.sin(u * Math.PI)),
+    });
+    upScan.push({ prefill, pointerUpMs: r.pointerUpMs, drawCalls: r.drawCalls });
+    results.push(r);
+  }
+
+  /* ---- سنجشِ زمانِ CPU با تکرار و گرفتنِ کمینه ----------------------
+     محیطِ headless (رستریزهٔ نرم‌افزاری، بدون GPU، زمان‌بندیِ نامنظم)
+     پراکندگیِ ±۵۰٪ دارد؛ پس یک اجرا معنا ندارد. «کمینه‌ی چند اجرا»
+     برآوردگرِ مقاومِ استانداردِ زمانِ CPU است چون نوفه فقط زمان را
+     *زیاد* می‌کند.
+     ------------------------------------------------------------------ */
+  const REPEATS = 7;
+  const cpu = [];
+  const cpuCases = [
+    ['cpu-slow-small', { size: 2, hz: 200, n: 400, rawUpdate: true,
+      samples: () => H.pathLine(120, 120, 480, 300, 400, u => 0.25 + 0.6 * Math.sin(u * Math.PI)) }],
+    ['cpu-fast-small', { size: 2, hz: 200, n: 120, rawUpdate: true,
+      samples: () => H.pathLine(120, 400, 840, 520, 120, u => 0.4 + 0.4 * u) }],
+    ['cpu-overlap-small', { size: 2, hz: 200, n: 400, prefill: 12, rawUpdate: true,
+      samples: () => H.pathLine(120, 200, 780, 218, 400, u => 0.3 + 0.5 * Math.sin(u * Math.PI * 3)) }],
+    ['cpu-medium', { size: 12, hz: 200, n: 400, rawUpdate: true,
+      samples: () => H.pathCircle(450, 300, 160, 400, () => 0.7) }],
+  ];
+  for (const [name, opt] of cpuCases) {
+    let best = Infinity, bestRec = null;
+    for (let i = 0; i < REPEATS; i++) {
+      const r = await scenario(name, opt);
+      if (r.busyMs < best) { best = r.busyMs; bestRec = r; }
+    }
+    cpu.push({
+      scenario: name, brush: opt.size,
+      minBusyMs: bestRec.busyMs,
+      minDispatchMs: bestRec.dispatchBusyMs,
+      minRafMs: bestRec.rafBusyMs,
+      drawCalls: bestRec.drawCalls,
+      engineSamples: bestRec.engineSamples,
+      repeats: REPEATS,
+    });
+  }
+
+  const dupPath = () => H.pathLine(150, 150, 750, 450, 300, u => 0.35 + 0.5 * u);
+  const withRaw = await scenario('dup-check-with-rawupdate', {
+    size: 4, hz: 200, n: 300, rawUpdate: true, samples: dupPath,
+  });
+  const withoutRaw = await scenario('dup-check-no-rawupdate', {
+    size: 4, hz: 200, n: 300, rawUpdate: false, samples: dupPath,
+  });
+  results.push(withRaw, withoutRaw);
+
+  const summary = {
+    engine,
+    dpr: window.devicePixelRatio,
+    coalescedInitSupported: H.supportsCoalescedInit,
+    duplicateProcessingRatio: withoutRaw.drawCalls
+      ? +(withRaw.drawCalls / withoutRaw.drawCalls).toFixed(2) : null,
+    duplicateBusyRatio: withoutRaw.busyMs
+      ? +(withRaw.busyMs / withoutRaw.busyMs).toFixed(2) : null,
+    pointerUpScan: upScan,
+    cpu,
+    results,
+  };
+  out.textContent = 'BENCH_JSON_BEGIN\n' + JSON.stringify(summary, null, 1) + '\nBENCH_JSON_END';
+  return summary;
+})();
+</script>
+</body>
+</html>

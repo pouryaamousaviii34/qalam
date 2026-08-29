@@ -1,0 +1,160 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+body {
+  font-family: Tahoma, Arial, sans-serif;
+  background: #e9e4d8;
+  color: #29251f;
+  user-select: none;
+}
+#app { width: 100%; height: 100%; display: flex; flex-direction: column; }
+header {
+  height: 64px; flex: 0 0 64px; display: flex; align-items: center;
+  justify-content: space-between; padding: 8px 18px;
+  background: #332d26; color: #f7f1e5; box-shadow: 0 2px 10px #0002;
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand h1 { margin: 0; font-size: 20px; }
+.brand small { opacity: .65; }
+.status { font-size: 12px; opacity: .9; }
+.angle-live { min-width: 54px; text-align:center; font: 11px Consolas, monospace; color:#6b4e32; }
+.toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  padding: 8px 14px; background: #f7f3ea; border-bottom: 1px solid #d2c9b8;
+  direction: rtl;
+}
+.group { display:flex; align-items:center; gap:7px; padding-left:10px; border-left:1px solid #d6cdbd; }
+label { font-size: 12px; white-space: nowrap; }
+input[type=range] { width: 110px; accent-color: #6b4e32; }
+input[type=color] { width: 34px; height: 28px; padding: 1px; border: 1px solid #aaa; }
+button, select {
+  border: 1px solid #c9beab; background: #fffdf8; color: #332d26;
+  border-radius: 7px; padding: 7px 10px; cursor: pointer;
+}
+button:hover { background: #eee7da; }
+button.active { background: #6b4e32; color: white; border-color: #6b4e32; }
+.swatches { display: flex; align-items: center; gap: 6px; }
+.swatch {
+  width: 24px; height: 24px; border-radius: 50%; padding: 0;
+  border: 2px solid #d7cfc0; box-shadow: inset 0 1px 2px rgba(0,0,0,.3);
+}
+.swatch:hover { transform: scale(1.12); }
+.swatch.active { border-color: #6b4e32; outline: 2px solid #a08858; transform: scale(1.08); }
+#wrap { position: relative; flex: 1; min-height: 0; padding: 14px; }
+#paper {
+  position: relative; width: 100%; height: 100%; background: #fffdf7;
+  border: 1px solid #d3c8b5; border-radius: 8px;
+  box-shadow: 0 3px 18px #4b392322;
+  overflow: hidden;
+  touch-action: none;
+}
+#paper::before { content: none; }
+canvas { position:absolute; inset:0; width:100%; height:100%; }
+#paperTex { z-index: 1; }
+#ink { z-index: 2; }
+#guide { z-index: 3; pointer-events:none; }
+#ballSizeGroup { display:flex; align-items:center; gap:7px; }
+#ballSizeGroup[hidden], #sizeGroup[hidden] { display:none !important; }
+#oilGroup[hidden], #oilCenterGroup[hidden], #oilEdgeGroup[hidden], #oilThickGroup[hidden] { display:none !important; }
+/* فلسفه‌ی دوات حذف شد — کلا مخفی */
+#inkGroup, #davatWrap, #dryHint { display:none !important; }
+.hint { display:block; }
+/* قلم نوری فعال: دکمه برجسته */
+#lightBtn.active { background: #2e7d4f; color: white; border-color: #2e7d4f; box-shadow: 0 0 10px #2e7d4f88; }
+.hud {
+  position:absolute; z-index:5; left:18px; bottom:14px; direction:ltr;
+  background:#332d26dd; color:white; border-radius:8px; padding:7px 10px;
+  font: 11px Consolas, monospace;
+}
+.hint {
+  position:absolute; z-index:5; right:18px; top:14px; direction:rtl;
+  background:#fffdf7dd; border:1px solid #d7cbb9; border-radius:8px;
+  padding:8px 11px; font-size:11px;
+}
+.dry-hint {
+  position:absolute; z-index:6; right:18px; top:60px; direction:rtl;
+  display:none; background:#a0381f; color:#fff; border-radius:8px;
+  padding:7px 11px; font-size:11px; font-weight:bold;
+}
+.dry-hint.show { display:block; }
+#davatWrap {
+  position:absolute; z-index:6; left:18px; top:14px; direction:rtl;
+}
+#davat {
+  position:relative; width:96px; height:80px; background:none; border:none;
+  padding:0; cursor:pointer; display:block; margin:0 auto;
+}
+#davat.glow { animation: davatGlow 1.3s ease-in-out infinite; }
+@keyframes davatGlow {
+  0%,100% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.07); filter: brightness(1.25); }
+}
+.davat-bowl {
+  position:absolute; top:22px; left:9px; width:78px; height:48px;
+  border-radius:50% 50% 44% 44%;
+  background:radial-gradient(ellipse at 32% 30%, #5a4433 0%, #3a2a1a 60%, #231709 100%);
+  border:2px solid #1c120a; overflow:hidden;
+  box-shadow:inset 0 -8px 14px rgba(0,0,0,.5), 0 4px 8px rgba(0,0,0,.25);
+}
+.davat-ink {
+  position:absolute; left:0; right:0; bottom:0; height:100%;
+  background:radial-gradient(ellipse at 35% 30%, #3a2418 0%, #140b05 70%);
+  transition:height .35s ease;
+}
+.davat-lip {
+  position:absolute; top:9px; left:22px; width:52px; height:16px;
+  border-radius:50%; background:#6b513a; border:2px solid #1c120a;
+  box-shadow:inset 0 2px 3px rgba(255,255,255,.15);
+}
+.ink-badge {
+  text-align:center; font-size:11px; color:#332d26; font-weight:bold;
+  margin-top:2px;
+}
+.ink-bar {
+  width:78px; height:9px; margin:5px auto 0; border-radius:5px;
+  background:#e0d3b4; border:1px solid #c9b893; overflow:hidden;
+}
+.ink-bar-fill {
+  height:100%; width:100%;
+  background:linear-gradient(90deg,#241609,#4a3118);
+  transition:width .2s ease;
+}
+.value { min-width: 34px; text-align:center; font-size:11px; }
+/* =====================================================================
+   پنل کالیبراسیون / اشکال‌زدایی موتور قلم نی
+   ===================================================================== */
+.dbg {
+  position: fixed; z-index: 40; right: 14px; top: 74px;
+  max-width: min(96vw, 1060px); max-height: calc(100vh - 96px);
+  overflow: auto; direction: rtl;
+  background: #fffdf7f2; border: 1px solid #c9beab; border-radius: 10px;
+  box-shadow: 0 8px 30px #3a2b1a44; padding: 10px 12px;
+  font-size: 12px;
+}
+.dbg[hidden] { display: none !important; }
+.dbg-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.dbg-head button { padding: 2px 9px; font-size: 15px; line-height: 1; }
+.dbg-cols { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+.dbg-col { min-width: 168px; flex: 0 0 auto; }
+.dbg-col h4 { margin: 6px 0 4px; font-size: 12px; color: #6b4e32; border-bottom: 1px solid #e0d6c4; padding-bottom: 2px; }
+.dbg .row { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
+.dbg .row b { font: 11px Consolas, monospace; direction: ltr; }
+.dbg .bar { height: 5px; background: #e6ddcb; border-radius: 3px; overflow: hidden; margin: 1px 0 4px; }
+.dbg .bar i { display: block; height: 100%; width: 0; background: #6b4e32; }
+.dbg canvas { display: block; margin-top: 6px; background: #fffefa; border: 1px solid #ddd3c0; border-radius: 5px; }
+.dbg-tune { min-width: 210px; }
+.dbg-tune label { display: block; margin: 3px 0 6px; font-size: 11px; }
+.dbg-tune label b { font: 11px Consolas, monospace; color: #6b4e32; direction: ltr; }
+.dbg-tune input[type=range] { width: 100%; display: block; }
+.dbg-tune button { width: 100%; margin-top: 6px; }
+#dbgToggle.active, #gridBtn.active { background: #6b4e32; color: #fff; border-color: #6b4e32; }
+a.labs {
+  display:inline-block; border:1px solid #c9beab; background:#fffdf8; color:#332d26;
+  border-radius:7px; padding:7px 10px; text-decoration:none; font-size:12px;
+}
+a.labs:hover { background:#eee7da; }
+#qalamError {
+  position: fixed; z-index: 999; left: 12px; right: 12px; top: 12px;
+  background: #8c1d13; color: #fff; border-radius: 8px; padding: 10px 14px;
+  font: 12px/1.6 Consolas, monospace; direction: ltr; white-space: pre-wrap;
+  box-shadow: 0 6px 24px #0006;
+}

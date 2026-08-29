@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="UTF-8"><title>region consistency</title></head>
+<body><pre id="out">RUNNING</pre>
+<script src="harness.js"></script>
+<script>
+/* diag2.html — آیا رسمِ افزایشی با بازترسیمِ کامل یکسان است؟
+   اگر redrawRegion چیزی را پاک کند و برنگرداند، این آزمون آن را می‌گیرد. */
+window.__r = (async function () {
+  const H = window.QalamHarness;
+  H.buildDOM(900, 620);
+  await new Promise(r => setTimeout(r, 60));
+  await H.loadEngine('../stylus.js');
+  await H.loadEngine('../qalam-engine.js');
+  await H.loadEngine('../app.js');
+  await new Promise(r => setTimeout(r, 150));
+  const T = window.__qalamTest;
+  const cv = T.inkCanvas, c = cv.getContext('2d');
+
+  function snap() { return c.getImageData(0, 0, cv.width, cv.height).data.slice(); }
+  function diff(a, b) {
+    let n = 0, tot = 0;
+    for (let i = 3; i < a.length; i += 4) {
+      tot++;
+      if (Math.abs(a[i] - b[i]) > 12) n++;
+    }
+    return { differing: n, total: tot, pct: +(100 * n / tot).toFixed(4) };
+  }
+
+  const cases = [];
+  async function run(name, fn) {
+    document.getElementById('clear').click();
+    await H.waitFrame();
+    await fn();
+    await H.waitFrame(); await H.waitFrame();
+    const incremental = snap();
+    T.redraw();
+    await H.waitFrame();
+    const full = snap();
+    cases.push(Object.assign({ name, strokes: T.strokes.length }, diff(incremental, full)));
+  }
+
+  await run('single stroke', async () => {
+    H.setControl('size', 10); H.setControl('nibRatio', 3); H.setControl('angle', 109);
+    await H.playStroke(H.pathLine(150, 300, 750, 300, 250, u => 0.2 + 0.7 * u), { hz: 200 });
+  });
+
+  await run('two crossing strokes', async () => {
+    H.setControl('size', 10);
+    await H.playStroke(H.pathLine(150, 300, 750, 300, 250, () => 0.95), { hz: 200 });
+    await H.playStroke(H.pathLine(450, 120, 450, 500, 200, u => 0.2 + 0.7 * u), { hz: 200 });
+  });
+
+  await run('12 overlapping strokes', async () => {
+    H.setControl('size', 6);
+    for (let k = 0; k < 12; k++) {
+      await H.playStroke(H.pathLine(180, 250 + k * 4, 720, 255 + k * 4, 160, () => 0.85), { hz: 200 });
+    }
+  });
+
+  await run('tail over existing ink', async () => {
+    H.setControl('size', 12);
+    await H.playStroke(H.pathLine(120, 300, 820, 300, 250, () => 1.0), { hz: 200 });
+    // استروکی که دمش دقیقاً روی خطِ قبلی تمام می‌شود
+    await H.playStroke(H.pathLine(200, 200, 700, 300, 220, u => 0.9 - 0.5 * u), { hz: 200 });
+  });
+
+  document.getElementById('out').textContent = JSON.stringify(cases, null, 1);
+  return cases;
+})();
+</script></body></html>

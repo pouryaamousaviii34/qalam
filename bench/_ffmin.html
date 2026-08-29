@@ -1,0 +1,8 @@
+<!DOCTYPE html><html><body><pre id=o>x</pre><script>
+function post(o){try{navigator.sendBeacon('/__result',JSON.stringify(o));}catch(e){}
+ try{const x=new XMLHttpRequest();x.open('POST','/__result',true);x.send(JSON.stringify(o));}catch(e){}}
+try{
+  post({ok:true, ua:navigator.userAgent, secure:window.isSecureContext,
+    hasPE:!!window.PointerEvent, beacon:!!navigator.sendBeacon});
+}catch(e){post({err:String(e)});}
+</script></body></html>

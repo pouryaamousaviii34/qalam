@@ -1,0 +1,191 @@
+{
+ "meta": {
+  "warning": "PHYSICAL_CALLIGRAPHY_VARIABLE و DIGITAL_STYLUS_VARIABLE دو چیزِ جدا هستند. فشارِ فیزیکیِ دست با pressure دیجیتالِ قلم نوری یکی فرض نشده است.",
+  "note": "این جدول فقط نگاشت است. در PHASE E هیچ چیزی پیاده نشد."
+ },
+ "mappings": [
+  {
+   "physicalConcept": "نقطه (dot)",
+   "physicalDescription": "واحدِ اندازه‌گیری = یک مربع به ضلعِ پهنای نوک",
+   "digitalEquivalent": "dotUnit = nibWidth",
+   "engineLayer": "NIB_MODEL / LAYOUT_MODEL",
+   "confidence": 0.92,
+   "sourcePages": [
+    5
+   ],
+   "sourceType": "SOURCE_EXPLICIT",
+   "implemented": false
+  },
+  {
+   "physicalConcept": "دانگ (dāng)",
+   "physicalDescription": "یک‌ششمِ پهنای نوک",
+   "digitalEquivalent": "dangUnit = nibWidth / 6",
+   "engineLayer": "LAYOUT_MODEL",
+   "confidence": 0.92,
+   "sourcePages": [
+    5
+   ],
+   "sourceType": "SOURCE_EXPLICIT",
+   "implemented": false
+  },
+  {
+   "physicalConcept": "نقطهٔ شش‌دانگی",
+   "physicalDescription": "نقطهٔ مربعِ کامل",
+   "digitalEquivalent": "dotAspect = 1.0",
+   "engineLayer": "NIB_MODEL",
+   "confidence": 0.9,
+   "sourcePages": [
+    5,
+    7
+   ],
+   "sourceType": "SOURCE_EXPLICIT",
+   "implemented": false
+  },
+  {
+   "physicalConcept": "نقطهٔ پنج‌دانگی (کلهر)",
+   "physicalDescription": "کششِ نوک ۵/۶ پهنا",
+   "digitalEquivalent": "dotAspect = 5/6 ≈ 0.833",
+   "engineLayer": "NIB_MODEL",
+   "confidence": 0.85,
+   "sourcePages": [
+    5,
+    7
+   ],
+   "sourceType": "SOURCE_EXPLICIT",
+   "implemented": false
+  },
+  {
+   "physicalConcept": "تراشِ «گوشت‌دارتر»",
+   "physicalDescription": "تیغهٔ کلفت‌تر",
+   "digitalEquivalent": "nibThickness ↑ (مقدار UNKNOWN)",
+   "engineLayer": "NIB_MODEL",
+   "confidence": 0.55,
+   "sourcePages": [
+    7
+   ],
+   "sourceType": "SOURCE_EXPLICIT",
+   "implemented": false
+  },
+  {
+   "physicalConcept": "قوت و ضعف",
+   "physicalDescription": "ضخیم/نازکِ دیده‌شدهٔ خط",
+   "digitalEquivalent": "contactWidth / apparentWidth",
+   "engineLayer": "NIB_MODEL",
+   "confidence": 0.7,
+   "sourcePages": [
+    5
+   ],
+   "sourceType": "SOURCE_EXPLICIT",
+   "implemented": false
+  },
+  {
+   "physicalConcept": "رانش قلم",
+   "physicalDescription": "طریقِ راندنِ قلم",
+   "digitalEquivalent": "strokeDirection (+ pushPull)",
+   "engineLayer": "STROKE_GENERATOR",
+   "confidence": 0.6,
+   "sourcePages": [
+    7
+   ],
+   "sourceType": "SOURCE_EXPLICIT",
+   "implemented": false
+  },
+  {
+   "physicalConcept": "قلم‌گذاری",
+   "physicalDescription": "نحوهٔ نشاندنِ قلم",
+   "digitalEquivalent": "nibAngle / nibOrientation",
+   "engineLayer": "NIB_MODEL",
+   "confidence": 0.55,
+   "sourcePages": [
+    7
+   ],
+   "sourceType": "SOURCE_EXPLICIT",
+   "implemented": false
+  },
+  {
+   "physicalConcept": "کرسی / خط میزان",
+   "physicalDescription": "خطِ نشستنِ حروف",
+   "digitalEquivalent": "baseline (layout)",
+   "engineLayer": "LAYOUT_MODEL",
+   "confidence": 0.75,
+   "sourcePages": [
+    7,
+    8
+   ],
+   "sourceType": "SOURCE_EXPLICIT",
+   "implemented": false
+  },
+  {
+   "physicalConcept": "ردهٔ قلم (mm)",
+   "physicalDescription": "پهنای فیزیکیِ نوک",
+   "digitalEquivalent": "nibWidthMm",
+   "engineLayer": "CALIBRATION",
+   "confidence": 0.88,
+   "sourcePages": [
+    6
+   ],
+   "sourceType": "SOURCE_EXPLICIT",
+   "implemented": false
+  },
+  {
+   "physicalConcept": "فشارِ دست",
+   "physicalDescription": "—",
+   "digitalEquivalent": "pressure",
+   "engineLayer": "PRESSURE_MODEL",
+   "confidence": 0,
+   "sourcePages": [],
+   "sourceType": "UNKNOWN",
+   "implemented": false
+  },
+  {
+   "physicalConcept": "سرعتِ حرکت",
+   "physicalDescription": "—",
+   "digitalEquivalent": "velocityInfluence",
+   "engineLayer": "STROKE_GENERATOR",
+   "confidence": 0,
+   "sourcePages": [],
+   "sourceType": "UNKNOWN",
+   "implemented": false
+  },
+  {
+   "physicalConcept": "زاویهٔ عددیِ نوک",
+   "physicalDescription": "—",
+   "digitalEquivalent": "nibAngle (عدد)",
+   "engineLayer": "NIB_MODEL",
+   "confidence": 0,
+   "sourcePages": [],
+   "sourceType": "UNKNOWN",
+   "implemented": false
+  },
+  {
+   "physicalConcept": "ترتیب/جهتِ حرکت",
+   "physicalDescription": "—",
+   "digitalEquivalent": "strokeOrder / strokeDirection",
+   "engineLayer": "STROKE_PATH",
+   "confidence": 0,
+   "sourcePages": [],
+   "sourceType": "UNKNOWN",
+   "implemented": false
+  },
+  {
+   "physicalConcept": "رفتارِ مرکب",
+   "physicalDescription": "—",
+   "digitalEquivalent": "inkModel",
+   "engineLayer": "INK_MODEL",
+   "confidence": 0,
+   "sourcePages": [],
+   "sourceType": "UNKNOWN",
+   "implemented": false
+  },
+  {
+   "physicalConcept": "هم‌پوشانی",
+   "physicalDescription": "—",
+   "digitalEquivalent": "overlapDensity",
+   "engineLayer": "INK_MODEL",
+   "confidence": 0,
+   "sourcePages": [],
+   "sourceType": "UNKNOWN",
+   "implemented": false
+  }
+ ]
+}

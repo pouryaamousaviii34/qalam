@@ -1,0 +1,11 @@
+{
+ "testId": "REG-ENGINE-UNTOUCHED",
+ "description": "PHASE E نباید موتور را تغییر دهد. این آزمون md5 سه فایلِ موتور را با مقدارِ ثبت‌شده در آغازِ فاز مقایسه می‌کند.",
+ "files": {
+  "app.js": "0259ea726917f77e2ec8e76415ebcdd1",
+  "qalam-engine.js": "d6c5761e2ee06e8aff88b4a5a2c3abfa",
+  "stylus.js": "b593e6c8ae2715c61e2970aac2856ed1"
+ },
+ "status": "READY",
+ "requiresEngine": false
+}

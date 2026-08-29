@@ -1,0 +1,75 @@
+<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8">
+<title>آزمون پهنای نوک</title><link rel="stylesheet" href="_style.css"></head>
+<body>
+<header><h1>آزمون پهنای نوک — میلی‌متر به پیکسل</h1><a href="index.html">آزمایشگاه</a></header>
+<main>
+<div class="card"><h2>نتیجه</h2><div id="tbl">در حال اجرا…</div>
+<p class="hint">
+پهنای نوک بر حسبِ میلی‌متر تنظیم می‌شود (96 CSS px = 1 inch = 25.4 mm ⇒
+1mm ≈ 3.78px). خط <b>عمود بر لبهٔ نوک</b> کشیده می‌شود تا پهنای کاملِ لبه
+دیده شود، و پهنا از <b>پیکسل‌های رندرشده</b> اندازه‌گیری می‌شود، نه از
+اعدادِ داخلیِ موتور.<br>
+انتظار: در فشار 1 پهنای رندرشده ≈ پهنای نوک (به‌اضافهٔ گِردیِ گوشه‌ها)؛ در
+فشار 0.5 سطحِ تماس کم می‌شود، و مهم‌تر اینکه کاهش <b>از سمتِ پاشنه</b>
+است، پس خط فقط یک نسخهٔ کوچک‌شدهٔ همان خط نیست.
+</p></div>
+<div class="card"><h2>تصویر</h2><img id="shot" class="shot"></div>
+</main>
+<script src="../bench/harness.js"></script><script src="lab.js"></script>
+<script>
+window.__lab = (async function () {
+  const L = window.QalamLab, QS = window.QalamStylus;
+  await L.boot();
+  const T = L.T, mm2px = T.cfg.pxPerMm;
+  const MM = [1, 2, 3, 5, 10, 15, 20];
+  const rows = [], out = [];
+
+  // لبهٔ نوک عمودی (90°) و حرکتِ افقی ⇒ کلِ پهنای لبه دیده می‌شود
+  // (apparent = |cw·sin(nibAngle − dir)| ، با اختلافِ 90° ⇒ sin = 1)
+  L.set('angle', 90);
+  L.set('smooth', 0);
+  L.set('nib', 'flat');
+  T.TUNE.heelLift = 1;            // عدم‌تقارنِ کامل تا اثرِ پاشنه دیده شود
+  T.TUNE.velocityWidthInfluence = 0;  // سرعت را از معادله بیرون بگذار
+  await L.clear();
+
+  let y = 40;
+  for (const mm of MM) {
+    T.TUNE.nibWidthMm = mm;
+    T.syncConfig();
+    const expected = mm * mm2px;
+    // خطِ افقی با لبهٔ افقی: پهنای *دیده‌شده* در ستونِ عمودی سنجیده می‌شود
+    // پنجره‌ی سنجش محدود به همین ردیف است تا مرکبِ ردیف‌های دیگر نشمرد
+    const y0 = y - 41, y1 = y + 41;
+    L.stroke(L.line(150, y, 470, y, 120), 1, 6);
+    const wFull = L.columnWidth(310, y0, y1);
+    L.stroke(L.line(560, y, 880, y, 120), 0.5, 6);
+    const wHalf = L.columnWidth(720, y0, y1);
+    rows.push([
+      mm, expected.toFixed(2),
+      wFull.toFixed(2), (wFull / expected).toFixed(3),
+      wHalf.toFixed(2), (wHalf / expected).toFixed(3),
+      (wHalf / Math.max(0.01, wFull)).toFixed(3),
+    ]);
+    const dbgRec = T.strokes.length ? T.strokes[T.strokes.length - 1] : null;
+    const dbgMid = dbgRec ? dbgRec[Math.floor(dbgRec.length / 2)] : null;
+    out.push({ mm: mm, expectedPx: +expected.toFixed(2),
+               atP1: +wFull.toFixed(2), atP05: +wHalf.toFixed(2),
+               _dbg: { y: y, y0: y0, y1: y1, strokes: T.strokes.length,
+                       cfgNibW: +T.cfg.nibWidth.toFixed(2),
+                       mid: dbgMid ? { x: +dbgMid.x.toFixed(1), y: +dbgMid.y.toFixed(1),
+                                       cw: +dbgMid.cw.toFixed(2), ang: dbgMid.ang,
+                                       uh: dbgMid.uh, ut: dbgMid.ut } : null } });
+    y += 84;
+    if (y > 620) break;
+  }
+
+  L.table('tbl',
+    ['nib mm', 'expected px', 'rendered @p=1', 'ratio', 'rendered @p=0.5',
+     'ratio', 'p0.5 / p1'],
+    rows);
+  L.snapshot('shot', 0, 0, 1000, Math.min(640, y + 20), 1);
+  T.TUNE.nibWidthMm = 0;
+  return out;
+})();
+</script></body></html>

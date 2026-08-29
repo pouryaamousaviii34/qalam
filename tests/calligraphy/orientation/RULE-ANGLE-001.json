@@ -1,0 +1,11 @@
+{
+ "testId": "RULE-ANGLE-001",
+ "ruleId": "RULE-ANGLE-001",
+ "sourcePages": [],
+ "input": {},
+ "expected": "NOT_SPECIFIED_BY_SOURCE",
+ "tolerance": null,
+ "status": "SKIPPED",
+ "requiresEngine": false,
+ "note": "کتاب هیچ عددِ زاویه‌ای نمی‌دهد. آزمونِ عددی ساخته نشد."
+}
